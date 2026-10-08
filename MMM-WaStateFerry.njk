@@ -1,0 +1,40 @@
+{% if not loaded %}
+  <div class="dimmed small">Loading ferry schedule…</div>
+{% elif error %}
+  <div class="dimmed small">Error: {{ error }}</div>
+{% elif sailings.length == 0 %}
+  <div class="dimmed small">No upcoming sailings today.</div>
+{% else %}
+  <div class="MMM-WaStateFerry-header medium">
+    <span class="bright">{{ departingTerminalName }}</span>
+    <span class="dimmed"> → </span>
+    <span class="bright">{{ arrivingTerminalName }}</span>
+  </div>
+  <table class="MMM-WaStateFerry-table small">
+    {% for sailing in sailings %}
+    <tr class="{% if sailing.hasDeparted %}departed{% endif %}">
+      <!-- Scheduled Time -->
+      <td class="departure-time bright">{{ sailing.departingTime }}</td>
+      
+      <!-- Estimated Departure Time (with conditional delay styling) -->
+      <td class="estimated-time">
+        {% if sailing.delayMinutes > 0 and not sailing.hasDeparted %}
+          <span style="color: #ffcc00;" title="Delayed by {{ sailing.delayMinutes }} mins">Est: {{ sailing.estDeptTime }}</span>
+        {% else %}
+          <span class="dimmed">{{ sailing.estDeptTime }}</span>
+        {% endif %}
+      </td>
+
+      <!-- Vessel Name -->
+      <td class="vessel-name dimmed">{{ sailing.vesselName }}</td>
+    </tr>
+    {% endfor %}
+    
+    <!-- Last Updated Footer -->
+    {% if lastUpdated %}
+    <tr class="last-updated-row">
+      <td colspan="3" class="last-updated dimmed">last updated on {{ lastUpdated }}</td>
+    </tr>
+    {% endif %}
+  </table>
+{% endif %}

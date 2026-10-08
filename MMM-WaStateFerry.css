@@ -1,0 +1,49 @@
+.MMM-WaStateFerry-header {
+    margin-bottom: 8px;
+}
+
+.MMM-WaStateFerry-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.MMM-WaStateFerry-table td {
+    padding: 3px 10px 3px 0;
+}
+
+.MMM-WaStateFerry-table .departure-time {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.MMM-WaStateFerry-table .estimated-time {
+    text-align: left;
+    white-space: nowrap;
+}
+
+/* Optional styling for delayed sailings */
+.MMM-WaStateFerry-table .delayed {
+    color: #ffcc00;
+}
+
+.MMM-WaStateFerry-table .vessel-name {
+    text-align: left;
+}
+
+/* Styling for sailings that have already departed */
+.MMM-WaStateFerry-table tr.departed {
+    opacity: 0.4;
+    color: #888888;
+}
+
+.MMM-WaStateFerry-table tr.departed .bright,
+.MMM-WaStateFerry-table tr.departed .dimmed {
+    color: #888888 !important;
+}
+
+/* Last updated footer styling */
+.MMM-WaStateFerry-table .last-updated-row td {
+    padding-top: 8px;
+    text-align: right;
+    font-size: 85%;
+}

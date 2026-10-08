@@ -48,96 +48,86 @@ module.exports = NodeHelper.create({
   },
 
   async fetchSchedule({ departingTerminalID, arrivingTerminalID, apiKey, maxSailings }) {
-    const forwardUrl = `https://www.wsdot.wa.gov/ferries/api/schedule/rest/scheduletoday/${departingTerminalID}/${arrivingTerminalID}/false?apiaccesscode=${apiKey}`;
-    const reverseUrl = `https://www.wsdot.wa.gov/ferries/api/schedule/rest/scheduletoday/${arrivingTerminalID}/${departingTerminalID}/false?apiaccesscode=${apiKey}`;
+    // Note: OnlyRemainingTimes is set to 'false' to pull the entire day's schedule
+    const scheduleUrl = `https://www.wsdot.wa.gov/ferries/api/schedule/rest/scheduletoday/${departingTerminalID}/${arrivingTerminalID}/false?apiaccesscode=${apiKey}`;
     const vesselsUrl = `https://www.wsdot.wa.gov/ferries/api/vessels/rest/vessellocations?apiaccesscode=${apiKey}`;
 
     try {
-      const [forwardRes, reverseRes, vesselsRes] = await Promise.all([
-        fetch(forwardUrl, { headers: { Accept: "application/json" } }),
-        fetch(reverseUrl, { headers: { Accept: "application/json" } }),
+      const [scheduleRes, vesselsRes] = await Promise.all([
+        fetch(scheduleUrl, { headers: { Accept: "application/json" } }),
         fetch(vesselsUrl, { headers: { Accept: "application/json" } })
       ]);
 
-      if (!forwardRes.ok) throw new Error(`HTTP ${forwardRes.status} on forward schedule`);
+      if (!scheduleRes.ok) throw new Error(`HTTP ${scheduleRes.status} on schedule`);
       if (!vesselsRes.ok) throw new Error(`HTTP ${vesselsRes.status} on vessel locations`);
 
-      const forwardData = await forwardRes.json();
-      const reverseData = reverseRes.ok ? await reverseRes.json() : null;
+      const scheduleData = await scheduleRes.json();
       const vesselsData = await vesselsRes.json();
 
       let departingTerminalName = "";
       let arrivingTerminalName = "";
-      let allSailings = [];
+      let sailings = [];
 
-      const extractSailings = (dataObj, isPrimaryDirection, customDepName = null, customArrName = null) => {
-        if (dataObj && Array.isArray(dataObj.TerminalCombos) && dataObj.TerminalCombos.length > 0) {
-          const combo = dataObj.TerminalCombos[0];
-          
-          if (isPrimaryDirection) {
-            departingTerminalName = combo.DepartingTerminalName || "";
-            arrivingTerminalName = combo.ArrivingTerminalName || "";
-          }
+      // Step 1: Get scheduled sailings and filter for correct route terminals
+      if (scheduleData && Array.isArray(scheduleData.TerminalCombos) && scheduleData.TerminalCombos.length > 0) {
+        const combo = scheduleData.TerminalCombos[0];
+        departingTerminalName = combo.DepartingTerminalName || "";
+        arrivingTerminalName = combo.ArrivingTerminalName || "";
 
-          if (Array.isArray(combo.Times)) {
-            return combo.Times.map((time) => ({
+        
+        if (Array.isArray(combo.Times)) {
+          sailings = combo.Times
+            .map(time => ({
               depDate: this.parseWsdotDate(time.DepartingTime),
               arrDate: this.parseWsdotDate(time.ArrivingTime),
               vesselID: time.VesselID,
-              vesselName: time.VesselName || "",
-              isPrimary: isPrimaryDirection,
-              depTerminalName: customDepName || combo.DepartingTerminalName || "",
-              arrTerminalName: customArrName || combo.ArrivingTerminalName || ""
+              vesselName: time.VesselName || ""
             }));
-          }
         }
-        return [];
-      };
+      }
+      
+      // Step 2: Extract unique vessel IDs relevant to this route's schedule
+      const routeVesselIDs = new Set(sailings.map(s => s.vesselID).filter(Boolean));
 
-      const forwardSailings = extractSailings(forwardData, true);
-      const reverseSailings = reverseData ? extractSailings(reverseData, false) : [];
-      allSailings = [...forwardSailings, ...reverseSailings];
-
-      // Process live vessel locations and update delays
+      // Step 3: Get current vessel info, calculate delay if atDock=false, otherwise use cache
       if (Array.isArray(vesselsData)) {
-        vesselsData.forEach((liveVessel) => {
-          if (!liveVessel.VesselID) return;
+        vesselsData.forEach(liveVessel => {
+          if (!liveVessel.VesselID || !routeVesselIDs.has(liveVessel.VesselID)) return;
 
-          let calculatedDelayMs = null;
-
-          // If vessel has left dock, calculate delay using LeftDock vs Scheduled Departure
           if (!liveVessel.AtDock && liveVessel.LeftDock) {
             const actualLeft = this.parseWsdotDate(liveVessel.LeftDock).getTime();
-            
-            // Look for matching scheduled run via ScheduledDeparture or fallback to closest run
             let scheduledDepTime = liveVessel.ScheduledDeparture ? this.parseWsdotDate(liveVessel.ScheduledDeparture).getTime() : null;
 
+            // Fallback match if ScheduledDeparture isn't explicitly populated on live feed item
             if (!scheduledDepTime) {
-              const vesselRuns = allSailings
+              const matchingRuns = sailings
                 .filter(s => s.vesselID === liveVessel.VesselID && s.depDate.getTime() <= actualLeft + (30 * 60 * 1000))
                 .sort((a, b) => Math.abs(a.depDate.getTime() - actualLeft) - Math.abs(b.depDate.getTime() - actualLeft));
 
-              if (vesselRuns.length > 0) {
-                scheduledDepTime = vesselRuns[0].depDate.getTime();
+              if (matchingRuns.length > 0) {
+                scheduledDepTime = matchingRuns[0].depDate.getTime();
               }
             }
 
             if (scheduledDepTime) {
-              calculatedDelayMs = Math.max(0, actualLeft - scheduledDepTime);
+              const delayMs = Math.max(0, actualLeft - scheduledDepTime);
+              vesselDelayCache[liveVessel.VesselID] = delayMs;
             }
           }
 
-          // Update cache: if we got a new delay from LeftDock, save it. 
-          // If the vessel is AtDock, it retains its previously cached delay.
-          if (calculatedDelayMs !== null) {
-            vesselDelayCache[liveVessel.VesselID] = calculatedDelayMs;
-          } else if (!(liveVessel.VesselID in vesselDelayCache)) {
-            vesselDelayCache[liveVessel.VesselID] = 0; // Default fallback
+          // Initialize cache if vessel has no entry yet
+          if (!(liveVessel.VesselID in vesselDelayCache)) {
+            vesselDelayCache[liveVessel.VesselID] = 0;
           }
         });
       }
 
-      let processedSailings = allSailings.map((sailing) => {
+      console.log(vesselDelayCache)
+      console.log(vesselsUrl)
+      console.log(vesselsData)
+
+      // Step 4: Link delay info back with schedule to compute estimated departure time
+      let processedSailings = sailings.map(sailing => {
         const delayMs = vesselDelayCache[sailing.vesselID] || 0;
         const estDepTimestamp = sailing.depDate.getTime() + delayMs;
         const estDepDate = new Date(estDepTimestamp);
@@ -147,9 +137,6 @@ module.exports = NodeHelper.create({
           estDeptTime: this.formatTime(estDepDate),
           estDeptTimestamp: estDepTimestamp,
           vesselName: sailing.vesselName,
-          isPrimary: sailing.isPrimary,
-          depTerminalName: sailing.depTerminalName,
-          arrTerminalName: sailing.arrTerminalName,
           delayMinutes: Math.round(delayMs / 60000),
           hasDeparted: estDepTimestamp < Date.now()
         };
@@ -157,7 +144,7 @@ module.exports = NodeHelper.create({
 
       processedSailings.sort((a, b) => a.estDeptTimestamp - b.estDeptTimestamp);
 
-      // Keep upcoming sailings plus anything that departed less than 30 minutes ago
+      // Step 5: Remove sailings that have an estimated departure more than 30 minutes ago
       const filteredSailings = processedSailings
         .filter(s => s.estDeptTimestamp >= Date.now() - (30 * 60 * 1000))
         .slice(0, maxSailings);

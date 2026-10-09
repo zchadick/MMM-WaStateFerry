@@ -4,6 +4,8 @@ Module.register("MMM-WaStateFerry", {
         arrivingTerminalID: 3,
         apiKey: "",
         maxSailings: 5,
+        predictionDbUser: "",
+		predictionDbPass: "",
         updateInterval: 5 * 60 * 1000,
         animationSpeed: 1000
     },
@@ -58,7 +60,9 @@ Module.register("MMM-WaStateFerry", {
             departingTerminalID: this.config.departingTerminalID,
             arrivingTerminalID: this.config.arrivingTerminalID,
             apiKey: this.config.apiKey,
-            maxSailings: this.config.maxSailings
+            maxSailings: this.config.maxSailings,
+            predictionDbUser: this.config.predictionDbUser,
+			predictionDbPass: this.config.predictionDbPass
         });
     },
 

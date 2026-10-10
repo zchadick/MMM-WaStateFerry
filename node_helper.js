@@ -16,7 +16,7 @@ module.exports = NodeHelper.create({
     }
   },
 
-  runPredictiveModel(sailings, dbUser, dbPass) {
+  runPredictiveModel(sailings, dbHost, dbUser, dbPass) {
     return new Promise((resolve) => {
       const pythonProcess = spawn("python3", [`${__dirname}/predictive_helpers/predictive_model_update.py`]);
 
@@ -26,6 +26,7 @@ module.exports = NodeHelper.create({
       // Send data to python script via stdin as JSON
       const payload = {
         sailings: sailings,
+        dbHost: dbHost,
         dbUser: dbUser,
         dbPass: dbPass
       };
@@ -48,8 +49,8 @@ module.exports = NodeHelper.create({
           return;
         }
 
-        const predictiveStatus = parseInt(outputData.trim(), 10);
-        resolve(isNaN(predictiveStatus) ? 0 : predictiveStatus);
+        const predictiveStatus = outputData.trim();
+        resolve(predictiveStatus);
       });
     });
   },
@@ -86,7 +87,7 @@ module.exports = NodeHelper.create({
     return `${formattedDate} @ ${time}`;
   },
 
-  async fetchSchedule({ departingTerminalID, arrivingTerminalID, apiKey, maxSailings, predictionDbUser, predictionDbPass }) {
+  async fetchSchedule({ departingTerminalID, arrivingTerminalID, apiKey, maxSailings, predictionDbHost, predictionDbUser, predictionDbPass }) {
     // Note: OnlyRemainingTimes is set to 'false' to pull the entire day's schedule
     const scheduleUrl = `https://www.wsdot.wa.gov/ferries/api/schedule/rest/scheduletoday/${departingTerminalID}/${arrivingTerminalID}/false?apiaccesscode=${apiKey}`;
     const vesselsUrl = `https://www.wsdot.wa.gov/ferries/api/vessels/rest/vessellocations?apiaccesscode=${apiKey}`;
@@ -185,7 +186,7 @@ module.exports = NodeHelper.create({
         .slice(0, maxSailings);
 
       // Get predictiveStatus integer from python script
-      const predictiveStatus = await this.runPredictiveModel(filteredSailings, predictionDbUser, predictionDbPass);
+      const predictiveStatus = await this.runPredictiveModel(filteredSailings, predictionDbHost, predictionDbUser, predictionDbPass);
       
       console.log(predictiveStatus)
 

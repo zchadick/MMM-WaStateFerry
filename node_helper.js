@@ -136,9 +136,7 @@ module.exports = NodeHelper.create({
         });
       }
 
-      console.log(vesselDelayCache)
-      console.log(vesselsUrl)
-      console.log(vesselsData)
+      Log.debug(`[MMM-WaStateFerry] Vessel delays (ms): ${JSON.stringify(vesselDelayCache)}`);
 
       // Step 3b: Map departure time to vehicle space for this route's arriving terminal
       const spaceByDeparture = new Map();

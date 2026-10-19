@@ -25,8 +25,8 @@
         {% endif %}
       </td>
 
-      <!-- Vessel Name -->
-      <td class="vessel-name dimmed">{{ sailing.vesselName }}</td>
+      <!-- Vessel Name (with drive-up spaces remaining, when available) -->
+      <td class="vessel-name dimmed">{{ sailing.vesselName }}{% if sailing.driveUpSpaceCount != null %} ({{ sailing.driveUpSpaceCount }}){% endif %}</td>
     </tr>
     {% endfor %}
     

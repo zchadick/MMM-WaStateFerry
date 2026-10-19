@@ -51,11 +51,15 @@ module.exports = NodeHelper.create({
     // Note: OnlyRemainingTimes is set to 'false' to pull the entire day's schedule
     const scheduleUrl = `https://www.wsdot.wa.gov/ferries/api/schedule/rest/scheduletoday/${departingTerminalID}/${arrivingTerminalID}/false?apiaccesscode=${apiKey}`;
     const vesselsUrl = `https://www.wsdot.wa.gov/ferries/api/vessels/rest/vessellocations?apiaccesscode=${apiKey}`;
+    // Sailing space is per departing terminal; filtered to arriving terminal below
+    const spaceUrl = `https://www.wsdot.wa.gov/ferries/api/terminals/rest/terminalsailingspace/${departingTerminalID}?apiaccesscode=${apiKey}`;
 
     try {
-      const [scheduleRes, vesselsRes] = await Promise.all([
+      // Sailing space is optional: a failed request resolves to null instead of rejecting
+      const [scheduleRes, vesselsRes, spaceRes] = await Promise.all([
         fetch(scheduleUrl, { headers: { Accept: "application/json" } }),
-        fetch(vesselsUrl, { headers: { Accept: "application/json" } })
+        fetch(vesselsUrl, { headers: { Accept: "application/json" } }),
+        fetch(spaceUrl, { headers: { Accept: "application/json" } }).catch(() => null)
       ]);
 
       if (!scheduleRes.ok) throw new Error(`HTTP ${scheduleRes.status} on schedule`);
@@ -63,6 +67,16 @@ module.exports = NodeHelper.create({
 
       const scheduleData = await scheduleRes.json();
       const vesselsData = await vesselsRes.json();
+
+      // Sailing space failures are logged but never shown on screen; space fields fall back to null
+      let spaceData = null;
+      try {
+        if (!spaceRes) throw new Error("request failed on sailing space");
+        if (!spaceRes.ok) throw new Error(`HTTP ${spaceRes.status} on sailing space`);
+        spaceData = await spaceRes.json();
+      } catch (spaceError) {
+        Log.warn(`[MMM-WaStateFerry] ${spaceError.message}`);
+      }
 
       let departingTerminalName = "";
       let arrivingTerminalName = "";
@@ -126,11 +140,35 @@ module.exports = NodeHelper.create({
       console.log(vesselsUrl)
       console.log(vesselsData)
 
+      // Step 3b: Map departure time to vehicle space for this route's arriving terminal
+      const spaceByDeparture = new Map();
+      if (spaceData && Array.isArray(spaceData.DepartingSpaces)) {
+        spaceData.DepartingSpaces.forEach(dep => {
+          const depDate = this.parseWsdotDate(dep.Departure);
+          if (!depDate || !Array.isArray(dep.SpaceForArrivalTerminals)) return;
+
+          // Multi-stop routes list several arrival terminals; pick the one for this route
+          const arrival = dep.SpaceForArrivalTerminals.find(a =>
+            a.TerminalID === arrivingTerminalID ||
+            (Array.isArray(a.ArrivalTerminalIDs) && a.ArrivalTerminalIDs.includes(arrivingTerminalID))
+          );
+          if (!arrival) return;
+
+          spaceByDeparture.set(depDate.getTime(), {
+            driveUpSpaceCount: arrival.DriveUpSpaceCount,
+            maxSpaceCount: arrival.MaxSpaceCount
+          });
+        });
+      }
+
       // Step 4: Link delay info back with schedule to compute estimated departure time
       let processedSailings = sailings.map(sailing => {
         const delayMs = vesselDelayCache[sailing.vesselID] || 0;
         const estDepTimestamp = sailing.depDate.getTime() + delayMs;
         const estDepDate = new Date(estDepTimestamp);
+
+        // Space feed only covers upcoming sailings; departed or unmatched sailings get null
+        const space = spaceByDeparture.get(sailing.depDate.getTime());
 
         return {
           departingTime: this.formatTime(sailing.depDate),
@@ -138,7 +176,9 @@ module.exports = NodeHelper.create({
           estDeptTimestamp: estDepTimestamp,
           vesselName: sailing.vesselName,
           delayMinutes: Math.round(delayMs / 60000),
-          hasDeparted: estDepTimestamp < Date.now()
+          hasDeparted: estDepTimestamp < Date.now(),
+          driveUpSpaceCount: space ? space.driveUpSpaceCount : null,
+          maxSpaceCount: space ? space.maxSpaceCount : null
         };
       });
 

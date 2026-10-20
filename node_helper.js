@@ -1,8 +1,12 @@
 const NodeHelper = require("node_helper");
 const Log = require("logger");
+const { createDbWriter } = require("./predictive_helpers/dbWriter");
 
 // Persistent cache for vessel delays across requests
 const vesselDelayCache = {};
+
+// Writes raw API responses to the prediction DB (only if configured in config.js)
+const dbWriter = createDbWriter(Log);
 
 module.exports = NodeHelper.create({
   start() {
@@ -47,7 +51,8 @@ module.exports = NodeHelper.create({
     return `${formattedDate} @ ${time}`;
   },
 
-  async fetchSchedule({ departingTerminalID, arrivingTerminalID, apiKey, maxSailings }) {
+  // Any remaining payload keys are the prediction DB settings (present only if set in config.js)
+  async fetchSchedule({ departingTerminalID, arrivingTerminalID, apiKey, maxSailings, ...dbConfig }) {
     // Note: OnlyRemainingTimes is set to 'false' to pull the entire day's schedule
     const scheduleUrl = `https://www.wsdot.wa.gov/ferries/api/schedule/rest/scheduletoday/${departingTerminalID}/${arrivingTerminalID}/false?apiaccesscode=${apiKey}`;
     const vesselsUrl = `https://www.wsdot.wa.gov/ferries/api/vessels/rest/vessellocations?apiaccesscode=${apiKey}`;
@@ -62,18 +67,31 @@ module.exports = NodeHelper.create({
         fetch(spaceUrl, { headers: { Accept: "application/json" } }).catch(() => null)
       ]);
 
+      // Read each response once as raw text: stored as-is in the prediction DB, parsed below for display
+      const scheduleText = await scheduleRes.text();
+      const vesselsText = await vesselsRes.text();
+      const spaceText = spaceRes ? await spaceRes.text().catch(() => null) : null;
+
+      // Send raw responses (including HTTP errors) to the prediction DB; not awaited so it never delays the display
+      const snapshotTime = new Date();
+      dbWriter.write(dbConfig, [
+        { snapshotTime, endpoint: "scheduletoday", departingTerminalID, arrivingTerminalID, httpStatus: scheduleRes.status, body: scheduleText },
+        { snapshotTime, endpoint: "vessellocations", departingTerminalID, arrivingTerminalID, httpStatus: vesselsRes.status, body: vesselsText },
+        { snapshotTime, endpoint: "terminalsailingspace", departingTerminalID, arrivingTerminalID, httpStatus: spaceRes ? spaceRes.status : null, body: spaceText }
+      ]);
+
       if (!scheduleRes.ok) throw new Error(`HTTP ${scheduleRes.status} on schedule`);
       if (!vesselsRes.ok) throw new Error(`HTTP ${vesselsRes.status} on vessel locations`);
 
-      const scheduleData = await scheduleRes.json();
-      const vesselsData = await vesselsRes.json();
+      const scheduleData = JSON.parse(scheduleText);
+      const vesselsData = JSON.parse(vesselsText);
 
       // Sailing space failures are logged but never shown on screen; space fields fall back to null
       let spaceData = null;
       try {
         if (!spaceRes) throw new Error("request failed on sailing space");
         if (!spaceRes.ok) throw new Error(`HTTP ${spaceRes.status} on sailing space`);
-        spaceData = await spaceRes.json();
+        spaceData = JSON.parse(spaceText);
       } catch (spaceError) {
         Log.warn(`[MMM-WaStateFerry] ${spaceError.message}`);
       }

@@ -54,12 +54,19 @@ Module.register("MMM-WaStateFerry", {
     },
 
     fetchSchedule () {
-        this.sendSocketNotification("GET_SCHEDULE", {
+        const payload = {
             departingTerminalID: this.config.departingTerminalID,
             arrivingTerminalID: this.config.arrivingTerminalID,
             apiKey: this.config.apiKey,
             maxSailings: this.config.maxSailings
+        };
+
+        // Pass prediction DB settings only if present in config.js (presence enables DB logging)
+        ["predictionDbUser", "predictionDbPass", "predictionDbHost", "predictionDbName", "predictionDbPort"].forEach(key => {
+            if (key in this.config) payload[key] = this.config[key];
         });
+
+        this.sendSocketNotification("GET_SCHEDULE", payload);
     },
 
     scheduleUpdate () {

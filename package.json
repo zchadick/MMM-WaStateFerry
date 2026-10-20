@@ -1,0 +1,14 @@
+{
+  "name": "mmm-wastateferry",
+  "version": "1.0.0",
+  "description": "MagicMirror² module showing live Washington State Ferries sailings, delays, and drive-up space.",
+  "main": "MMM-WaStateFerry.js",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "mariadb": "^3.5.4"
+  }
+}

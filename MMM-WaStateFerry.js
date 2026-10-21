@@ -5,8 +5,13 @@ Module.register("MMM-WaStateFerry", {
         apiKey: "",
         maxSailings: 5,
         updateInterval: 5 * 60 * 1000,
-        animationSpeed: 1000
+        animationSpeed: 1000,
+        fade: true,
+        fadePoint: 0.25 // Start fading 1/4 of the way down the list (same as calendar/weather)
     },
+
+    // One full cycle of the title icon pulse; must match the CSS animation duration
+    pulseCycleMs: 2000,
 
     start () {
         this.sailings = [];
@@ -15,6 +20,8 @@ Module.register("MMM-WaStateFerry", {
         this.departingTerminalName = "";
         this.arrivingTerminalName = "";
         this.lastUpdated = "";
+        this.fetching = false;
+        this.pulseUntil = 0;
         this.fetchSchedule();
         this.scheduleUpdate();
     },
@@ -24,14 +31,52 @@ Module.register("MMM-WaStateFerry", {
     },
 
     getTemplateData () {
+        // Add display-only fields: color classes and bottom-fade opacity
+        const sailings = this.sailings.map((sailing, index) => ({
+            ...sailing,
+            delayClass: this.delayClass(sailing.delayMinutes),
+            spaceClass: this.spaceClass(sailing.driveUpSpaceCount, sailing.maxSpaceCount),
+            // Fade multiplies with the departed-row dimming (0.4) instead of overriding it
+            opacity: this.config.fade
+                ? Math.round(this.fadeOpacity(index, this.sailings.length) * (sailing.hasDeparted ? 0.4 : 1) * 100) / 100
+                : null
+        }));
+
         return {
             loaded: this.loaded,
             error: this.error,
-            sailings: this.sailings,
+            sailings: sailings,
             departingTerminalName: this.departingTerminalName,
             arrivingTerminalName: this.arrivingTerminalName,
-            lastUpdated: this.lastUpdated
+            lastUpdated: this.lastUpdated,
+            fetching: this.fetching
         };
+    },
+
+    // Color class for the estimated departure time, by delay in minutes
+    delayClass (delayMinutes) {
+        if (delayMinutes == null || delayMinutes < 5) return "";
+        if (delayMinutes <= 30) return "delay-yellow";
+        if (delayMinutes <= 60) return "delay-red";
+        return "delay-purple";
+    },
+
+    // Color class for drive-up spaces, by percentage of spaces left
+    spaceClass (spaceCount, maxSpaceCount) {
+        if (spaceCount == null || !maxSpaceCount) return "";
+        const percentLeft = (spaceCount / maxSpaceCount) * 100;
+        if (percentLeft <= 0) return "space-purple";
+        if (percentLeft <= 10) return "space-red";
+        if (percentLeft <= 50) return "space-yellow";
+        return "";
+    },
+
+    // Row opacity for the bottom fade (same formula as the default calendar/weather modules)
+    fadeOpacity (index, count) {
+        if (!this.config.fade || this.config.fadePoint >= 1) return 1;
+        const startingPoint = count * Math.max(this.config.fadePoint, 0);
+        if (index < startingPoint) return 1;
+        return 1 - (index - startingPoint) / (count - startingPoint);
     },
 
     getStyles () {
@@ -44,16 +89,35 @@ Module.register("MMM-WaStateFerry", {
             this.departingTerminalName = payload.departingTerminalName;
             this.arrivingTerminalName = payload.arrivingTerminalName;
             this.lastUpdated = payload.lastUpdated;
+            // Fade in on first load only; later refreshes swap in without the fade-out/in
+            const firstLoad = !this.loaded;
             this.loaded = true;
             this.error = null;
-            this.updateDom(this.config.animationSpeed);
+            this.finishFetch(firstLoad ? this.config.animationSpeed : 0);
         } else if (notification === "FERRY_ERROR") {
             this.error = payload.message;
-            this.updateDom(this.config.animationSpeed);
+            this.finishFetch(this.config.animationSpeed);
         }
     },
 
+    // Stop the icon pulse (after at least one full cycle) and render the latest data
+    finishFetch (speed) {
+        clearTimeout(this.finishTimer);
+        this.finishTimer = setTimeout(() => {
+            this.fetching = false;
+            this.updateDom(speed);
+        }, Math.max(0, this.pulseUntil - Date.now()));
+    },
+
     fetchSchedule () {
+        // Pulse the title icon while fetching; toggled on the existing element so data stays on screen
+        if (this.loaded) {
+            this.fetching = true;
+            this.pulseUntil = Date.now() + this.pulseCycleMs;
+            const icon = document.querySelector(`#${this.identifier} .ferry-icon`);
+            if (icon) icon.classList.add("pulsing");
+        }
+
         const payload = {
             departingTerminalID: this.config.departingTerminalID,
             arrivingTerminalID: this.config.arrivingTerminalID,

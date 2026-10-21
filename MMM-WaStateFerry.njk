@@ -6,34 +6,42 @@
   <div class="dimmed small">No upcoming sailings today.</div>
 {% else %}
   <div class="MMM-WaStateFerry-header medium">
-    <span class="bright">{{ departingTerminalName }}</span>
+    <!-- Ferry icon (pulses while fetching new data) -->
+    <i class="fa-solid fa-ferry ferry-icon normal{% if fetching %} pulsing{% endif %}"></i>
+    <span class="normal">{{ departingTerminalName }}</span>
     <span class="dimmed"> → </span>
-    <span class="bright">{{ arrivingTerminalName }}</span>
+    <span class="normal">{{ arrivingTerminalName }}</span>
   </div>
   <table class="MMM-WaStateFerry-table small">
     {% for sailing in sailings %}
-    <tr class="{% if sailing.hasDeparted %}departed{% endif %}">
+    <tr class="{% if sailing.hasDeparted %}departed{% endif %}"{% if sailing.opacity != null %} style="opacity: {{ sailing.opacity }};"{% endif %}>
       <!-- Scheduled Time -->
-      <td class="departure-time bright">{{ sailing.departingTime }}</td>
-      
-      <!-- Estimated Departure Time (with conditional delay styling) -->
+      <td class="departure-time normal">{{ sailing.departingTime }}</td>
+
+      <!-- Estimated Departure Time (italic, colored by delay); departed sailings show "Dep:", not italic -->
       <td class="estimated-time">
-        {% if sailing.delayMinutes > 0 and not sailing.hasDeparted %}
-          <span style="color: #ffcc00;" title="Delayed by {{ sailing.delayMinutes }} mins">Est: {{ sailing.estDeptTime }}</span>
+        {% if sailing.hasDeparted %}
+          <!-- Still the estimated time until actual departure times are tracked (backlog #3) -->
+          <span class="dimmed departed-time">Dep: {{ sailing.estDeptTime }}</span>
+        {% elif sailing.delayMinutes > 0 %}
+          <span class="dimmed {{ sailing.delayClass }}" title="Delayed by {{ sailing.delayMinutes }} mins">Est: {{ sailing.estDeptTime }}</span>
         {% else %}
           <span class="dimmed">{{ sailing.estDeptTime }}</span>
         {% endif %}
       </td>
 
-      <!-- Vessel Name (with drive-up spaces remaining, when available) -->
-      <td class="vessel-name dimmed">{{ sailing.vesselName }}{% if sailing.driveUpSpaceCount != null %} ({{ sailing.driveUpSpaceCount }}){% endif %}</td>
+      <!-- Drive-up spaces left (colored by percentage left; N/A when not available) -->
+      <td class="spaces dimmed {{ sailing.spaceClass }}">{% if sailing.driveUpSpaceCount != null %}{{ sailing.driveUpSpaceCount }}{% else %}N/A{% endif %}</td>
+
+      <!-- Vessel Name -->
+      <td class="vessel-name dimmed">{{ sailing.vesselName }}</td>
     </tr>
     {% endfor %}
-    
-    <!-- Last Updated Footer -->
+
+    <!-- Last Updated Footer (not faded) -->
     {% if lastUpdated %}
     <tr class="last-updated-row">
-      <td colspan="3" class="last-updated dimmed">last updated on {{ lastUpdated }}</td>
+      <td colspan="4" class="last-updated dimmed">last updated on {{ lastUpdated }}</td>
     </tr>
     {% endif %}
   </table>

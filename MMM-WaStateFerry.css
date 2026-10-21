@@ -19,6 +19,47 @@
 .MMM-WaStateFerry-table .estimated-time {
     text-align: left;
     white-space: nowrap;
+    font-style: italic;
+}
+
+/* Departed sailings ("Dep:") are not italic */
+.MMM-WaStateFerry-table .estimated-time .departed-time {
+    font-style: normal;
+}
+
+.MMM-WaStateFerry-table .spaces {
+    text-align: right;
+    white-space: nowrap;
+}
+
+/* Delay colors (estimated time) and drive-up space colors */
+.MMM-WaStateFerry-table .delay-yellow,
+.MMM-WaStateFerry-table .space-yellow {
+    color: #ffcc00;
+}
+
+.MMM-WaStateFerry-table .delay-red,
+.MMM-WaStateFerry-table .space-red {
+    color: #ff6b6b;
+}
+
+.MMM-WaStateFerry-table .delay-purple,
+.MMM-WaStateFerry-table .space-purple {
+    color: #c77dff;
+}
+
+/* Title icon; pulses while new data is being fetched (one cycle = pulseCycleMs in the module JS) */
+.MMM-WaStateFerry-header .ferry-icon {
+    margin-right: 6px;
+}
+
+.MMM-WaStateFerry-header .ferry-icon.pulsing {
+    animation: mmm-wastateferry-pulse 2s ease-in-out infinite;
+}
+
+@keyframes mmm-wastateferry-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.25; }
 }
 
 /* Optional styling for delayed sailings */
@@ -37,6 +78,7 @@
 }
 
 .MMM-WaStateFerry-table tr.departed .bright,
+.MMM-WaStateFerry-table tr.departed .normal,
 .MMM-WaStateFerry-table tr.departed .dimmed {
     color: #888888 !important;
 }
@@ -45,5 +87,5 @@
 .MMM-WaStateFerry-table .last-updated-row td {
     padding-top: 8px;
     text-align: right;
-    font-size: 85%;
+    font-size: 75%;
 }

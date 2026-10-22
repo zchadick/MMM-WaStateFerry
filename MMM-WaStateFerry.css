@@ -27,9 +27,34 @@
     font-style: normal;
 }
 
+/* Spaces column sits right after the estimated time (left-aligned) */
 .MMM-WaStateFerry-table .spaces {
-    text-align: right;
+    text-align: left;
     white-space: nowrap;
+}
+
+/* Car icon labels the count; takes the count's color, never italic */
+.MMM-WaStateFerry-table .spaces .space-icon {
+    font-size: 85%;
+    font-style: normal;
+    margin-right: 4px;
+}
+
+/* Upcoming space counts are live estimates: italic like estimated times (number only) */
+.MMM-WaStateFerry-table .spaces .space-count {
+    font-style: italic;
+}
+
+/* Departed counts (last seen) and cancelled rows are not italic */
+.MMM-WaStateFerry-table tr.departed .spaces .space-count,
+.MMM-WaStateFerry-table tr.cancelled .spaces .space-count,
+.MMM-WaStateFerry-table tr.cancelled .estimated-time {
+    font-style: normal;
+}
+
+/* Cancelled sailings: whole row struck through */
+.MMM-WaStateFerry-table tr.cancelled td {
+    text-decoration: line-through;
 }
 
 /* Delay colors (estimated time) and drive-up space colors */

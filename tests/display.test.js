@@ -50,6 +50,17 @@ test("bottom fade matches the calendar/weather formula", () => {
   assert.deepStrictEqual(opacities, [1, 1, 0.8, 0.53, 0.27]);
 });
 
+test("space colors apply only to upcoming, non-cancelled sailings", () => {
+  const m = moduleWithConfig();
+  m.sailings = [
+    { hasDeparted: true, isCancelled: false, driveUpSpaceCount: 0, maxSpaceCount: 197 },
+    { hasDeparted: false, isCancelled: true, driveUpSpaceCount: 0, maxSpaceCount: 197 },
+    { hasDeparted: false, isCancelled: false, driveUpSpaceCount: 0, maxSpaceCount: 197 }
+  ];
+  const classes = m.getTemplateData().sailings.map(s => s.spaceClass);
+  assert.deepStrictEqual(classes, ["", "", "space-purple"]);
+});
+
 test("no fade when fade is off", () => {
   const m = moduleWithConfig({ fade: false });
   assert.deepStrictEqual([0, 1, 2, 3, 4].map(i => m.fadeOpacity(i, 5)), [1, 1, 1, 1, 1]);

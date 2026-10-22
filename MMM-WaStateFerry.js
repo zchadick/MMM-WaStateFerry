@@ -35,7 +35,8 @@ Module.register("MMM-WaStateFerry", {
         const sailings = this.sailings.map((sailing, index) => ({
             ...sailing,
             delayClass: this.delayClass(sailing.delayMinutes),
-            spaceClass: this.spaceClass(sailing.driveUpSpaceCount, sailing.maxSpaceCount),
+            // Space colors only for upcoming, non-cancelled sailings (departed counts are uncolored)
+            spaceClass: sailing.hasDeparted || sailing.isCancelled ? "" : this.spaceClass(sailing.driveUpSpaceCount, sailing.maxSpaceCount),
             // Fade multiplies with the departed-row dimming (0.4) instead of overriding it
             opacity: this.config.fade
                 ? Math.round(this.fadeOpacity(index, this.sailings.length) * (sailing.hasDeparted ? 0.4 : 1) * 100) / 100

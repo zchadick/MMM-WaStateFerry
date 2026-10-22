@@ -5,6 +5,11 @@ const { createDbWriter } = require("./predictive_helpers/dbWriter");
 // Persistent cache for vessel delays across requests
 const vesselDelayCache = {};
 
+// In-memory record per sailing: actual departure, last space count seen, cancellation.
+// Never written to disk; rebuilt from the API after a restart. Keyed by "<departingTerminalID>:<scheduled ms>".
+const sailingMemory = new Map();
+const SAILING_MEMORY_MS = 24 * 60 * 60 * 1000;
+
 // Writes raw API responses to the prediction DB (only if configured in config.js)
 const dbWriter = createDbWriter(Log);
 
@@ -156,12 +161,47 @@ module.exports = NodeHelper.create({
 
       Log.debug(`[MMM-WaStateFerry] Vessel delays (ms): ${JSON.stringify(vesselDelayCache)}`);
 
+      // Step 3a: Record actual departures in sailingMemory. A vessel is running one of this route's
+      // sailings when its VesselID and ScheduledDeparture both match the sailing (the vessel ID tells
+      // apart same-time sailings from the other terminal). Also note vessels still at the dock for a sailing.
+      const now = Date.now();
+      const sailingKey = scheduledMs => `${departingTerminalID}:${scheduledMs}`;
+      const rememberSailing = (scheduledMs, fields) => {
+        const key = sailingKey(scheduledMs);
+        sailingMemory.set(key, { ...sailingMemory.get(key), scheduledMs, ...fields });
+      };
+
+      // Forget sailings scheduled more than 24 hours ago
+      for (const [key, entry] of sailingMemory) {
+        if (entry.scheduledMs < now - SAILING_MEMORY_MS) sailingMemory.delete(key);
+      }
+
+      const waitingAtDock = new Set();
+      if (Array.isArray(vesselsData)) {
+        vesselsData.forEach(liveVessel => {
+          if (!liveVessel.ScheduledDeparture) return;
+          const scheduledMs = this.parseWsdotDate(liveVessel.ScheduledDeparture).getTime();
+          const sailing = sailings.find(s => s.vesselID === liveVessel.VesselID && s.depDate.getTime() === scheduledMs);
+          if (!sailing) return;
+
+          if (liveVessel.AtDock) {
+            waitingAtDock.add(scheduledMs);
+          } else if (liveVessel.LeftDock) {
+            rememberSailing(scheduledMs, { actualLeft: this.parseWsdotDate(liveVessel.LeftDock).getTime() });
+          }
+        });
+      }
+
       // Step 3b: Map departure time to vehicle space for this route's arriving terminal
       const spaceByDeparture = new Map();
       if (spaceData && Array.isArray(spaceData.DepartingSpaces)) {
         spaceData.DepartingSpaces.forEach(dep => {
           const depDate = this.parseWsdotDate(dep.Departure);
           if (!depDate || !Array.isArray(dep.SpaceForArrivalTerminals)) return;
+
+          // Remember cancellations; the feed drops sailings a few minutes after their scheduled time
+          const isCancelled = dep.IsCancelled === true;
+          if (isCancelled) rememberSailing(depDate.getTime(), { cancelled: true });
 
           // Multi-stop routes list several arrival terminals; pick the one for this route
           const arrival = dep.SpaceForArrivalTerminals.find(a =>
@@ -172,6 +212,13 @@ module.exports = NodeHelper.create({
 
           spaceByDeparture.set(depDate.getTime(), {
             driveUpSpaceCount: arrival.DriveUpSpaceCount,
+            maxSpaceCount: arrival.MaxSpaceCount,
+            isCancelled
+          });
+
+          // Remember the latest count so departed sailings can show what they sailed with
+          rememberSailing(depDate.getTime(), {
+            driveUpSpaceCount: arrival.DriveUpSpaceCount,
             maxSpaceCount: arrival.MaxSpaceCount
           });
         });
@@ -180,11 +227,29 @@ module.exports = NodeHelper.create({
       // Step 4: Link delay info back with schedule to compute estimated departure time
       let processedSailings = sailings.map(sailing => {
         const delayMs = vesselDelayCache[sailing.vesselID] || 0;
-        const estDepTimestamp = sailing.depDate.getTime() + delayMs;
+        const scheduledMs = sailing.depDate.getTime();
+        const estDepTimestamp = scheduledMs + delayMs;
         const estDepDate = new Date(estDepTimestamp);
 
         // Space feed only covers upcoming sailings; departed or unmatched sailings get null
-        const space = spaceByDeparture.get(sailing.depDate.getTime());
+        const space = spaceByDeparture.get(scheduledMs);
+        const memory = sailingMemory.get(sailingKey(scheduledMs)) || {};
+        const isCancelled = Boolean((space && space.isCancelled) || memory.cancelled);
+        const actualLeft = memory.actualLeft ?? null;
+
+        // Departed: a cancelled sailing once its scheduled time passes; otherwise the boat actually left.
+        // Without real data (e.g. after a restart), use the estimate unless the boat is still at the dock for it.
+        let hasDeparted;
+        if (isCancelled) {
+          hasDeparted = scheduledMs < now;
+        } else if (actualLeft !== null) {
+          hasDeparted = true;
+        } else {
+          hasDeparted = estDepTimestamp < now && !waitingAtDock.has(scheduledMs);
+        }
+
+        // Live count while listed; after the feed drops a sailing, the last count seen before its scheduled time
+        const spaceInfo = isCancelled ? {} : (space || memory);
 
         return {
           departingTime: this.formatTime(sailing.depDate),
@@ -192,18 +257,35 @@ module.exports = NodeHelper.create({
           estDeptTimestamp: estDepTimestamp,
           vesselName: sailing.vesselName,
           delayMinutes: Math.round(delayMs / 60000),
-          hasDeparted: estDepTimestamp < Date.now(),
-          driveUpSpaceCount: space ? space.driveUpSpaceCount : null,
-          maxSpaceCount: space ? space.maxSpaceCount : null
+          hasDeparted,
+          driveUpSpaceCount: spaceInfo.driveUpSpaceCount ?? null,
+          maxSpaceCount: spaceInfo.maxSpaceCount ?? null,
+          isCancelled,
+          // Shown after "Dep:": actual departure when known, otherwise the estimate
+          departedTime: this.formatTime(new Date(actualLeft ?? estDepTimestamp)),
+          // Used for the 30-minute window: actual departure, else scheduled time (cancelled), else estimate
+          departedAt: actualLeft ?? (isCancelled ? scheduledMs : estDepTimestamp),
+          // Upcoming order: cancelled sailings sort by scheduled time
+          sortTimestamp: isCancelled ? scheduledMs : estDepTimestamp
         };
       });
 
       processedSailings.sort((a, b) => a.estDeptTimestamp - b.estDeptTimestamp);
 
-      // Step 5: Remove sailings that have an estimated departure more than 30 minutes ago
-      const filteredSailings = processedSailings
-        .filter(s => s.estDeptTimestamp >= Date.now() - (30 * 60 * 1000))
+      // Step 5: Departed rows: every sailing that departed in the last 30 minutes, or else the single most
+      // recent one. Upcoming rows: up to maxSailings (departed rows don't count toward it).
+      const departed = processedSailings
+        .filter(s => s.hasDeparted)
+        .sort((a, b) => a.departedAt - b.departedAt);
+      const recentlyDeparted = departed.filter(s => s.departedAt >= now - (30 * 60 * 1000));
+      const shownDeparted = recentlyDeparted.length > 0 ? recentlyDeparted : departed.slice(-1);
+
+      const upcoming = processedSailings
+        .filter(s => !s.hasDeparted)
+        .sort((a, b) => a.sortTimestamp - b.sortTimestamp)
         .slice(0, maxSailings);
+
+      const filteredSailings = [...shownDeparted, ...upcoming];
 
       const lastUpdated = this.formatLastUpdated(Date.now());
 

@@ -29,6 +29,13 @@ git-ignored `CLAUDE.local.md`.
   behavior gets tests.
 - **Credentials live only in MagicMirror's `config/config.js`,** never in this repo or in
   log output.
+- **Keep README.md up to date.** Any change to behavior, configuration options or
+  defaults, install/update steps, display rules, or limitations updates the README in the
+  same pull request.
+- **Flag when `screenshot.png` is out of date.** If a change alters what the module looks
+  like on screen (template, CSS, icons, colors, columns, display rules), say so in the
+  pull request and remind the maintainer to retake the screenshot. When a new screenshot
+  is added, strip its metadata first (keep only the PNG image chunks).
 
 ## Runtime
 
@@ -41,7 +48,7 @@ git-ignored `CLAUDE.local.md`.
 Settings go in the module's entry in `config/config.js`:
 
 - `apiKey`: WSDOT Traveler Information API access code
-- `departingTerminalID`, `arrivingTerminalID`: the route (e.g. 3 → 7, Bainbridge Island → Seattle)
+- `departingTerminalID`, `arrivingTerminalID`: the route (default 3 → 7, Bainbridge Island → Seattle)
 - `maxSailings`, `updateInterval`, `animationSpeed`, `fade`, `fadePoint`
 - `manualRefreshCooldown` (optional, default 30 s): manual (e.g. GPIO) refreshes within
   this time of the last refresh don't fetch; they only pulse the icon
@@ -105,33 +112,12 @@ have trailing whitespace, e.g. `"Coupeville "`). 3 = Bainbridge Island, 7 = Seat
 
 ## Design constraint: one route
 
-One route per MagicMirror installation. **Write this into the README before going public.**
-Draft README text:
+One route per MagicMirror installation; an entry for a different route is ignored with a
+log warning and an on-screen notice. The user-facing explanation and the fork workaround
+for a second route are in README.md ("One route per MagicMirror"); keep them in sync.
 
-> **One route per MagicMirror installation.** MMM-WaStateFerry shows a single ferry route
-> (one departing terminal and one arriving terminal). You can add the module to your
-> config more than once (for example, to show the same route in two places), but every
-> entry must use the same `departingTerminalID` and `arrivingTerminalID`. An entry with a
-> different route is ignored and a warning is written to the MagicMirror log.
->
-> **Need a second route?** Install a renamed copy of the module. MagicMirror treats it as
-> a separate module with its own background process:
-> 1. Copy the folder, e.g. `modules/MMM-WaStateFerry` → `modules/MMM-WaStateFerry2`.
-> 2. In the copy, rename `MMM-WaStateFerry.js`, `MMM-WaStateFerry.njk`, and
->    `MMM-WaStateFerry.css` to `MMM-WaStateFerry2.*`.
-> 3. In `MMM-WaStateFerry2.js`, change `Module.register("MMM-WaStateFerry", ...)` to
->    `Module.register("MMM-WaStateFerry2", ...)`, and update the file names returned by
->    `getTemplate()` and `getStyles()`.
-> 4. In the copy's `package.json`, change `"main"` to `MMM-WaStateFerry2.js`.
-> 5. Run `npm install` in the copy if you use database logging.
-> 6. In `config/config.js`, add an entry with `module: "MMM-WaStateFerry2"` and the
->    second route's terminal IDs.
->
-> Both copies can log to the same database; rows are distinguished by their
-> `departing_terminal_id` / `arriving_terminal_id` columns.
-
-Notes for the README author: the copy's CSS classes (`MMM-WaStateFerry-*`) and log prefixes
-keep the original name (harmless). The "mariadb not installed" message in
+Notes on the fork workaround: the copy's CSS classes (`MMM-WaStateFerry-*`) and log
+prefixes keep the original name (harmless). The "mariadb not installed" message in
 `predictive_helpers/dbWriter.js` names the original folder.
 
 ## How sailings are interpreted
@@ -240,9 +226,6 @@ a button triggers a manual refresh via `refresh("manual")` (cooldown already bui
 
 ## Before going public
 
-- Audit the repo **and its git history** for API keys, DB credentials, and host names.
-- Write README.md: install (`npm install`), configuration including the optional DB keys,
-  and the one-route constraint with its fork workaround (draft above).
-- Document that MagicMirror sends module config (including the API key and DB password)
-  to the browser.
-- Review LICENSE.
+Done: git history audited for secrets (clean, all branches, 2026-10-30); README.md written
+(including the one-route constraint and the browser-visible config note); LICENSE.md
+reviewed (MIT, zchadick). Remaining: the maintainer switches the repo to public on GitHub.

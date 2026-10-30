@@ -74,6 +74,11 @@ test("a result for a different route shows the one-route notice, not sailings", 
   assert.deepStrictEqual(m.sailings, [], "the other route's sailings are not shown");
 });
 
+test("default route is Bainbridge Island (3) to Seattle (7)", () => {
+  assert.strictEqual(definition.defaults.departingTerminalID, 3);
+  assert.strictEqual(definition.defaults.arrivingTerminalID, 7);
+});
+
 test("no fade when fade is off", () => {
   const m = moduleWithConfig({ fade: false });
   assert.deepStrictEqual([0, 1, 2, 3, 4].map(i => m.fadeOpacity(i, 5)), [1, 1, 1, 1, 1]);

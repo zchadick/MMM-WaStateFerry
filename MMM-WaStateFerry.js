@@ -1,7 +1,7 @@
 Module.register("MMM-WaStateFerry", {
     defaults: {
-        departingTerminalID: 7,
-        arrivingTerminalID: 3,
+        departingTerminalID: 3, // Bainbridge Island
+        arrivingTerminalID: 7,  // Seattle
         apiKey: "",
         maxSailings: 5,
         updateInterval: 5 * 60 * 1000,

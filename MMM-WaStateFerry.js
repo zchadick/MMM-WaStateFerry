@@ -7,7 +7,8 @@ Module.register("MMM-WaStateFerry", {
         updateInterval: 5 * 60 * 1000,
         animationSpeed: 1000,
         fade: true,
-        fadePoint: 0.25 // Start fading 1/4 of the way down the list (same as calendar/weather)
+        fadePoint: 0.25, // Start fading 1/4 of the way down the list (same as calendar/weather)
+        manualRefreshCooldown: 30 * 1000 // Manual (e.g. GPIO) refreshes within this time of the last refresh are ignored
     },
 
     // One full cycle of the title icon pulse; must match the CSS animation duration
@@ -22,8 +23,8 @@ Module.register("MMM-WaStateFerry", {
         this.lastUpdated = "";
         this.fetching = false;
         this.pulseUntil = 0;
-        this.fetchSchedule();
-        this.scheduleUpdate();
+        this.routeKey = `${this.config.departingTerminalID}-${this.config.arrivingTerminalID}`;
+        this.register();
     },
 
     getTemplate () {
@@ -85,7 +86,27 @@ Module.register("MMM-WaStateFerry", {
     },
 
     socketNotificationReceived (notification, payload) {
-        if (notification === "FERRY_SCHEDULE") {
+        // One route per installation: the helper broadcasts to every page, so check the route first
+        if (payload && payload.routeKey && payload.routeKey !== this.routeKey) {
+            const notice = `Only one ferry route is supported per MagicMirror. This entry's route (${this.routeKey}, `
+                + `departing-arriving terminal IDs) is ignored; the active route is ${payload.routeKey}. See the README.`;
+            if (this.error !== notice) {
+                this.error = notice;
+                this.loaded = true;
+                this.updateDom(0);
+            }
+            return;
+        }
+
+        if (notification === "FETCH_STARTED") {
+            // Pulse the title icon while fetching; toggled on the existing element so data stays on screen
+            if (this.loaded) {
+                this.fetching = true;
+                this.pulseUntil = Date.now() + this.pulseCycleMs;
+                const icon = document.querySelector(`#${this.identifier} .ferry-icon`);
+                if (icon) icon.classList.add("pulsing");
+            }
+        } else if (notification === "FERRY_SCHEDULE") {
             this.sailings = payload.sailings;
             this.departingTerminalName = payload.departingTerminalName;
             this.arrivingTerminalName = payload.arrivingTerminalName;
@@ -110,33 +131,22 @@ Module.register("MMM-WaStateFerry", {
         }, Math.max(0, this.pulseUntil - Date.now()));
     },
 
-    fetchSchedule () {
-        // Pulse the title icon while fetching; toggled on the existing element so data stays on screen
-        if (this.loaded) {
-            this.fetching = true;
-            this.pulseUntil = Date.now() + this.pulseCycleMs;
-            const icon = document.querySelector(`#${this.identifier} .ferry-icon`);
-            if (icon) icon.classList.add("pulsing");
-        }
-
-        const payload = {
+    // Register once with the helper, which runs the fetch cycle for every page (weather-module pattern)
+    register () {
+        const settings = {
             departingTerminalID: this.config.departingTerminalID,
             arrivingTerminalID: this.config.arrivingTerminalID,
             apiKey: this.config.apiKey,
-            maxSailings: this.config.maxSailings
+            maxSailings: this.config.maxSailings,
+            updateInterval: this.config.updateInterval,
+            manualRefreshCooldown: this.config.manualRefreshCooldown
         };
 
         // Pass prediction DB settings only if present in config.js (presence enables DB logging)
         ["predictionDbUser", "predictionDbPass", "predictionDbHost", "predictionDbName", "predictionDbPort"].forEach(key => {
-            if (key in this.config) payload[key] = this.config[key];
+            if (key in this.config) settings[key] = this.config[key];
         });
 
-        this.sendSocketNotification("GET_SCHEDULE", payload);
-    },
-
-    scheduleUpdate () {
-        setInterval(() => {
-            this.fetchSchedule();
-        }, this.config.updateInterval);
+        this.sendSocketNotification("REGISTER", settings);
     }
 });

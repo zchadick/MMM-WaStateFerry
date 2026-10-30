@@ -16,12 +16,83 @@ const dbWriter = createDbWriter(Log);
 module.exports = NodeHelper.create({
   start() {
     Log.log(`Starting node helper for: ${this.name}`);
+    // One route per installation (see README): settings come from the first page to register
+    this.settings = null;
+    this.routeKey = null;
+    this.latestResult = null;
+    this.refreshTimer = null;
+    this.inFlight = null;
+    this.lastRefreshAt = 0;
+    this.warnedRoutes = new Set();
+  },
+
+  stop() {
+    clearTimeout(this.refreshTimer);
   },
 
   socketNotificationReceived(notification, payload) {
-    if (notification === "GET_SCHEDULE") {
-      this.fetchSchedule(payload);
+    if (notification === "REGISTER") {
+      this.register(payload);
     }
+  },
+
+  // Each page registers once with its merged settings (weather-module pattern); the helper runs the fetch cycle
+  register(settings) {
+    const routeKey = `${settings.departingTerminalID}-${settings.arrivingTerminalID}`;
+
+    if (!this.settings) {
+      this.settings = settings;
+      this.routeKey = routeKey;
+      this.refresh("startup");
+      return;
+    }
+
+    if (routeKey !== this.routeKey && !this.warnedRoutes.has(routeKey)) {
+      this.warnedRoutes.add(routeKey);
+      Log.warn(`[MMM-WaStateFerry] Only one route is supported per MagicMirror. Ignoring an entry for route ${routeKey} `
+        + `(departing-arriving terminal IDs); the active route is ${this.routeKey}. See the README.`);
+    }
+
+    // Reloads, extra pages, and other entries reuse the one cycle: send the latest result right away.
+    // A page for a different route sees the active routeKey and shows a notice instead of sailings.
+    if (this.latestResult) {
+      this.sendSocketNotification(this.latestResult.notification, this.latestResult.payload);
+    }
+  },
+
+  // One full fetch cycle. Callers: startup, timer, and later pre-departure and GPIO (trigger "manual").
+  refresh(trigger) {
+    if (!this.settings) return Promise.resolve();
+
+    // Overlapping triggers join the fetch in progress
+    if (this.inFlight) return this.inFlight;
+
+    // Manual triggers inside the cooldown don't fetch, but still pulse the icon so the press registers
+    if (trigger === "manual" && Date.now() - this.lastRefreshAt < this.settings.manualRefreshCooldown) {
+      this.sendSocketNotification("FETCH_STARTED", { routeKey: this.routeKey });
+      if (this.latestResult) this.sendSocketNotification(this.latestResult.notification, this.latestResult.payload);
+      return Promise.resolve();
+    }
+
+    clearTimeout(this.refreshTimer);
+    this.sendSocketNotification("FETCH_STARTED", { routeKey: this.routeKey });
+
+    // Timer settings stay with the helper; the rest are fetch settings (route, API key, DB keys if present)
+    const { updateInterval, manualRefreshCooldown, ...fetchSettings } = this.settings;
+    this.inFlight = this.fetchSchedule(fetchSettings).finally(() => {
+      this.inFlight = null;
+      this.lastRefreshAt = Date.now();
+      // The countdown restarts after every refresh, whatever triggered it
+      this.refreshTimer = setTimeout(() => this.refresh("timer"), updateInterval);
+    });
+    return this.inFlight;
+  },
+
+  // Send a result to every page (tagged with its route) and keep it for pages that register later
+  sendResult(notification, payload, routeKey) {
+    const tagged = { ...payload, routeKey };
+    this.latestResult = { notification, payload: tagged };
+    this.sendSocketNotification(notification, tagged);
   },
 
   // WSDOT API returns dates as .NET-style "/Date(milliseconds)/"
@@ -289,16 +360,16 @@ module.exports = NodeHelper.create({
 
       const lastUpdated = this.formatLastUpdated(Date.now());
 
-      this.sendSocketNotification("FERRY_SCHEDULE", { 
-        sailings: filteredSailings, 
-        departingTerminalName, 
+      this.sendResult("FERRY_SCHEDULE", {
+        sailings: filteredSailings,
+        departingTerminalName,
         arrivingTerminalName,
         lastUpdated
-      });
+      }, `${departingTerminalID}-${arrivingTerminalID}`);
 
     } catch (error) {
       Log.error(`[MMM-WaStateFerry] ${error.message}`);
-      this.sendSocketNotification("FERRY_ERROR", { message: error.message });
+      this.sendResult("FERRY_ERROR", { message: error.message }, `${departingTerminalID}-${arrivingTerminalID}`);
     }
   }
 });

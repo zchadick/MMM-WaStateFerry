@@ -61,6 +61,19 @@ test("space colors apply only to upcoming, non-cancelled sailings", () => {
   assert.deepStrictEqual(classes, ["", "", "space-purple"]);
 });
 
+test("a result for a different route shows the one-route notice, not sailings", () => {
+  const m = moduleWithConfig({ departingTerminalID: 7, arrivingTerminalID: 3 });
+  m.routeKey = "7-3";
+  m.loaded = false;
+  m.sailings = [];
+  m.updateDom = () => {};
+  m.socketNotificationReceived("FERRY_SCHEDULE", { routeKey: "3-7", sailings: [{ departingTime: "9:40 AM" }] });
+  assert.match(m.error, /Only one ferry route is supported/);
+  assert.match(m.error, /route \(7-3/);
+  assert.match(m.error, /active route is 3-7/);
+  assert.deepStrictEqual(m.sailings, [], "the other route's sailings are not shown");
+});
+
 test("no fade when fade is off", () => {
   const m = moduleWithConfig({ fade: false });
   assert.deepStrictEqual([0, 1, 2, 3, 4].map(i => m.fadeOpacity(i, 5)), [1, 1, 1, 1, 1]);

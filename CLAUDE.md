@@ -210,7 +210,17 @@ data; parsing, dedup, analysis, and prediction happen in post-processing on the 
   table instead of keeping the last data.
 - **Time zones:** `formatTime` uses the server's zone; `formatLastUpdated` forces
   America/Los_Angeles.
-- `vesselDelayCache` is never reset, so delays can carry over to the next day.
+- **Reset the calculated delay before the next day's schedule.** Observed 2026-11-02:
+  `vesselDelayCache` is never reset, so a vessel's delay from the previous evening's last
+  sailings is added to its first sailings the next morning (wrong `Est:` times and delay
+  colors until the boat's first crossing of the day). Notes for the fix:
+  - Options: drop a vessel's delay once its `LeftDock` is older than some limit (e.g. a
+    couple of hours; simplest, also covers long midday gaps), or clear the cache when the
+    schedule's service day changes (WSF's service day runs past midnight to ~1 AM, so a
+    plain midnight reset would cut off the last sailings).
+  - Consider the overlap with `sailingMemory` (lower-priority architecture finding):
+    actual departures are already remembered per sailing there.
+  - Needs tests with the mock clock across an overnight gap.
 - **Lower-priority architecture findings:** `vesselDelayCache` and `sailingMemory` overlap;
   `fetchSchedule()` is one large function; times are formatted server-side.
 
@@ -224,8 +234,10 @@ a button triggers a manual refresh via `refresh("manual")` (cooldown already bui
 - Open: pin numbers and wiring; what each LED shows (on/off/blinking); what the second
   button does.
 
-## Before going public
+## Public release
 
-Done: git history audited for secrets (clean, all branches, 2026-10-30); README.md written
-(including the one-route constraint and the browser-visible config note); LICENSE.md
-reviewed (MIT, zchadick). Remaining: the maintainer switches the repo to public on GitHub.
+The repo is public (since 2026-10-30): git history audited for secrets (clean, all
+branches), README.md written (including the one-route constraint and the browser-visible
+config note), LICENSE.md reviewed (MIT, zchadick). Anything committed is now visible to
+everyone: keep credentials, host names, and personal paths out of commits (they belong in
+`config/config.js` or the git-ignored `CLAUDE.local.md`).

@@ -83,3 +83,46 @@ test("no fade when fade is off", () => {
   const m = moduleWithConfig({ fade: false });
   assert.deepStrictEqual([0, 1, 2, 3, 4].map(i => m.fadeOpacity(i, 5)), [1, 1, 1, 1, 1]);
 });
+
+test("a map page only accepts its own map replies and shows errors", () => {
+  const m = moduleWithConfig({ type: "map" });
+  m.identifier = "module_9_MMM-WaStateFerry";
+  m.data = { path: "modules/MMM-WaStateFerry" };
+  m.file = definition.file || (name => `${m.data.path}/${name}`);
+  m.map = { status: "loading" };
+  m.updateDom = () => {};
+
+  m.socketNotificationReceived("MAP_READY", { identifier: "module_10_MMM-WaStateFerry", file: "aaaaaaaaaaaaaaaa.svg", width: 1, height: 1 });
+  assert.strictEqual(m.map.status, "loading", "another map's reply is ignored");
+  m.socketNotificationReceived("FERRY_SCHEDULE", { routeKey: "3-7", sailings: [] });
+  assert.strictEqual(m.map.status, "loading", "sailing results are not used by the map yet");
+
+  const view = { west: -122.6143, north: 47.73803, east: -122.29558, south: 47.57325, k: 0.674, scale: 2032, width: 400, height: 307 };
+  m.socketNotificationReceived("MAP_READY", { identifier: "module_9_MMM-WaStateFerry", file: "0123456789abcdef.svg", width: 400, height: 307, view });
+  assert.deepStrictEqual(m.map, { status: "ready", src: "modules/MMM-WaStateFerry/map_cache/0123456789abcdef.svg", width: 400, height: 307, view });
+
+  m.socketNotificationReceived("MAP_ERROR", { identifier: "module_9_MMM-WaStateFerry", errors: ["mapWidth must be a whole number"] });
+  assert.deepStrictEqual(m.map, { status: "error", errors: ["mapWidth must be a whole number"] });
+});
+
+test("a map page merges nested defaults so partial settings keep the rest", () => {
+  const m = moduleWithConfig({ type: "map", mapColors: { land: "#222" }, mapLayers: { contours: false } });
+  m.identifier = "module_9_MMM-WaStateFerry";
+  // MagicMirror replaces nested objects unless configDeepMerge is set; simulate that shallow merge
+  m.config.mapColors = { land: "#222" };
+  m.config.mapLayers = { contours: false };
+  let sent = null;
+  m.sendSocketNotification = (name, payload) => { sent = { name, payload }; };
+  m.registerMap();
+  assert.strictEqual(sent.name, "REGISTER");
+  assert.strictEqual(sent.payload.type, "map");
+  assert.strictEqual(sent.payload.mapColors.land, "#222");
+  assert.strictEqual(sent.payload.mapColors.water, definition.defaults.mapColors.water);
+  assert.deepStrictEqual(sent.payload.mapLayers, { depth: true, contours: false, coastline: true });
+});
+
+test("map corners have no defaults (they must be set in config.js); mapWidth defaults to 400", () => {
+  assert.strictEqual(definition.defaults.mapUpperLeft, undefined);
+  assert.strictEqual(definition.defaults.mapLowerRight, undefined);
+  assert.strictEqual(definition.defaults.mapWidth, 400);
+});

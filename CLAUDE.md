@@ -54,12 +54,21 @@ Settings go in the module's entry in `config/config.js`:
   this time of the last refresh don't fetch; they only pulse the icon
 - `predictionDbUser`, `predictionDbPass`, `predictionDbHost`, `predictionDbName`, and
   optional `predictionDbPort` (default 3306): MariaDB logging (see Prediction database)
+- `type`: `"sailings"` (default, the list) or `"map"`; map options (`mapUpperLeft`,
+  `mapLowerRight`, `mapWidth`, `mapDetail`, `mapLayers`, `mapColors`, `mapLineWidths`,
+  `mapEdgeFade`) are described under "Map view"
 
 ## Testing
 
 Automated (`tests/`), from the module directory: `node --test` (or `npm test`).
 - `display.test.js`, `sailings.test.js`, `fetching.test.js`: stand-in API data and a mock
   clock; no network or DB needed.
+- `mapBuilder.test.js`: map validation, view/aspect ratio, detail level, cache keys,
+  background builds and caching, cross-hatching; mostly a tiny made-up data set, plus one
+  smoke test on the real `map_data/low`.
+- `mapMarkers.test.js`: vessel states and filtering, reference data (load, failure, daily
+  refresh), `MAP_POSITIONS` messages, and the page's marker HTML (projection, rotation, icons,
+  colors, sizes, escaping, overlay-only updates).
 - `db.test.js`: connects to the configured DB and writes to a `TEMPORARY` test table;
   **skipped** (not failed) if any DB key is missing from config.js.
   `KEEP_TEST_TABLE=1 node --test` writes to a kept `test_api_snapshots_<timestamp>` table instead.
@@ -104,11 +113,19 @@ have trailing whitespace, e.g. `"Coupeville "`). 3 = Bainbridge Island, 7 = Seat
   timer restarts `updateInterval` after every refresh. `fetchSchedule()` fetches the three
   feeds, logs them to the DB, builds the sailing rows, and sends the result via
   `sendResult()` (caches it and tags it with `routeKey`, e.g. `"3-7"`).
-- `MMM-WaStateFerry.njk` + `.css`: template and styles.
+- `MMM-WaStateFerry.njk` + `.css`: template and styles. `MMM-WaStateFerry-map.njk`: the
+  map view's template (chosen when `type: "map"`).
 - `predictive_helpers/`: prediction-related code, JS and (future) Python side by side.
   `dbWriter.js` writes raw API responses to MariaDB.
-- `package.json`: only dependency is `mariadb` (needed only for DB logging);
-  `node_modules/` is git-ignored.
+- `map/`: the map view's builder, called from node_helper.js (which stays thin).
+  `mapBuilder.js` validates settings, computes the view, names cache files, and queues
+  builds; `mapWorker.mjs` runs a build in a background thread (`worker_threads`);
+  `renderSvg.mjs` draws the SVG. `referenceData.js` keeps vessel abbreviations and terminal
+  locations (daily); `vesselPositions.js` turns the vessel feed into marker data.
+  `map_data/`: the NOAA-derived map data (see its README).
+  `map_cache/`: generated SVGs (git-ignored).
+- `package.json`: dependencies `mariadb` (DB logging), `@turf/bbox-clip` and `d3-geo`
+  (map view); `node_modules/` is git-ignored.
 
 ## Design constraint: one route
 
@@ -160,6 +177,98 @@ calls after a restart.
 - **Fade:** rows fade toward the bottom like the calendar module (`fade`, `fadePoint`);
   the "last updated" line (75% size) is not faded.
 
+## Map view (in progress on `map_view`)
+
+A display mode of this module: a config entry with `type: "map"` (like the weather
+module's `type`). Data: `map_data/` (NOAA ENC-derived GeoJSON: water, land, coastline lines,
+nested depth layers 30–600 ft; low/medium/high detail; covers lon −123.35…−122.15,
+lat 47.00…48.80). The user-facing description is in README.md ("Map view"); NOAA terms and
+how the data was made are in `map_data/README.md`.
+
+**Display approach (Pi-friendly):** the helper builds the map **once as an SVG file**,
+shown with `<img>` so the browser rasterizes it once; only small markers will move over it
+(CSS transform). The SVG is saved in `map_cache/`, named by a hash of everything that changes
+the picture (area, size, detail, layers, colors, line widths, plus `DATA_VERSION` and
+`BUILDER_VERSION` in `map/mapBuilder.js`); an existing file is reused, never rebuilt. Colors
+are baked into the SVG (an `<img>` SVG can't use page CSS). The newest 5 files are kept.
+Builds run in a background thread, one at a time.
+
+**Phase 1 (done):**
+- Options: `mapUpperLeft` / `mapLowerRight` (`{ lat, lon }`, decimal degrees) are **required,
+  with no defaults** (owner's decision 2026-11-03); `mapWidth` (px, default 400; MagicMirror
+  doesn't tell modules their width, so the height follows the area's shape). Missing or
+  invalid settings are listed on screen and in the log. Other options: `mapDetail`
+  (`auto` picks from metres per pixel), `mapLayers`, `mapColors`, `mapLineWidths`,
+  `mapEdgeFade`. Nested defaults are merged by the module, so partial settings keep the rest.
+- Aspect ratio limited to **5:1 … 1:5**: keep the upper-left corner, trim right/bottom.
+- **Edge fade:** all four edges fade **to black** (CSS mask on the map container, so
+  phase 2 markers fade too), never to the land color. Default 4% per side (was 6%; narrowed 2026-11-03).
+- **Outside the data's coverage:** black with light cross-hatching plus an "outside map
+  coverage" label; the label is left out when the outside area is too small for it.
+- **Default look (REVISIT later):** land `#333333` (darkened from `#3a3a3a` on 2026-11-03); water `#1f3a52` darkening with depth
+  (`#1a3247`, `#162b3d`, `#122433`, `#0e1d2a`, `#0a1620`, `#060f17` for 30→600 ft); contours
+  `rgba(0,0,0,0.25)` at 0.5 px; coastline `#626e78` at 1 px.
+- **Several maps** (different areas) can be on screen at once: map replies carry the page's
+  identifier.
+- **Route:** map entries don't specify one; the map registers as a **viewer** (never sets the
+  route or starts the fetch cycle) and will use the sailings entry's data. **Map-only configs
+  are unsupported for now:** the static map draws, and the helper logs once (about 60 s
+  after a map registers with no sailings entry, since pages register in any order) that the
+  map doesn't function without a sailings entry.
+- **Pi testing deferred** (owner's decision 2026-11-03): no dedicated Pi measurement before
+  merging; revisit only if issues show up on the Pi (build time/memory from the "Built map"
+  log line, display smoothness, multi-week memory). `d3-geo` is only loaded from the ESM
+  worker code, so it doesn't depend on Node's require(esm). A 35-day fast-forward of the
+  helper (10,000 cycles) showed flat heap use (~7.2 MB).
+
+**Phase 2: ferries and terminals (built 2026-11-03; live check pending).** Decisions:
+- **All visible vessels that are in service** (out-of-service boats are not shown), colored
+  by user-definable state: non-route boats; route boats at dock; route boats heading to the
+  departing terminal; route boats heading to the arriving terminal. Font Awesome icons:
+  underway `fa-location-arrow` rotated to the heading (the icon points north-east, so
+  rotate by heading − 45°); at dock a separate icon, placeholder `fa-anchor` (not rotated).
+  The vessel **abbreviation** (from `vesselbasics`, e.g. `PUY`) goes **below** the icon.
+- **All visible terminals** marked with a square (`fa-square`), colored as departing
+  terminal, arriving terminal, or other, with the terminal's **full name above** the marker
+  (WSF's abbreviations are unclear, e.g. Seattle is `P52`). Overlapping labels are OK for now.
+- **Example map area** used in the README and for testing (not a default): upper-left
+  47.73803, −122.61430; lower-right 47.57325, −122.29558 (east edge moved ~10% east so
+  Seattle's terminal is clear of the edge fade; 400 × 307 px at `mapWidth` 400).
+- **Default marker colors** (the "muted" mock-up, chosen 2026-11-03): other boats `#3d3d3d`
+  (deliberately faint);
+  route boat at dock `#9a9a9a`; to departing terminal `#7fa7c9`; to arriving terminal
+  `#d8c8a0`; departing terminal `#7fa7c9`; arriving terminal `#d8c8a0`; other terminals `#666`.
+- **Marker and label sizes are config settings** (the mirror's screen size dictates the
+  final look). Mock-ups used 11 px icons and 10 px labels; the anchor was hard to read at
+  that size.
+
+**Phase 2 design (2026-11-03):**
+- New options: `mapMarkerSize` (14), `mapLabelSize` (11), `mapMarkerColors` (`otherBoat`,
+  `dockedBoat`, `toDeparting`, `toArriving`, `departingTerminal`, `arrivingTerminal`,
+  `otherTerminal`), `mapIcons` (`underway`, `docked`, `terminal`: Font Awesome names).
+  Validated like the other map options; not part of the SVG cache key (markers aren't in
+  the SVG).
+- `map/referenceData.js`: fetches `vesselbasics` (abbreviations) and `terminallocations`
+  (terminal positions) when the sailings entry registers, then once a day; kept in memory,
+  not logged to the DB. A failed fetch keeps the previous data and logs a warning.
+- `map/vesselPositions.js`: pure function turning the vessel feed + route + reference data
+  into marker data (in-service vessels only, with state; terminals with kind).
+- `fetchSchedule()` hands the vessel feed and route vessels to the helper after each
+  successful fetch; the helper broadcasts `MAP_POSITIONS` to all pages and keeps the latest
+  for maps that register later (and re-sends when reference data arrives).
+- `MAP_READY` also carries the view (bounds and scale), so the page projects lat/lon to
+  pixels the same way the SVG was drawn.
+- The page draws markers into an overlay inside the faded map container by updating only
+  the overlay's HTML (the map `<img>` is never re-rendered by position updates). Markers
+  outside the map are skipped; names are HTML-escaped.
+- **Positions come from the list's regular fetch:** no separate map timer or map-only
+  fetches; markers update whenever the list refreshes. Faster updates come from extra
+  triggers calling the same `refresh()` (e.g. pre-departure), which log to the DB like any
+  refresh.
+- Vessel abbreviations and terminal locations come from other WSF endpoints that rarely
+  change: fetch them rarely and cache them (ties into the `cacheflushdate` backlog item).
+- Ferries and terminals appear after the first fetch result; the static map draws first.
+
 ## Prediction database
 
 Optional raw logging via `predictive_helpers/dbWriter.js`. The module only **saves** raw
@@ -190,11 +299,16 @@ data; parsing, dedup, analysis, and prediction happen in post-processing on the 
 3. **Drive-up space display:** done (live and last-seen counts).
 4. **Fill prediction:** not started.
 5. **Pi GPIO** (status LEDs and buttons): planned; see below.
-6. **Map view** of live vessel positions: future idea, as a second *view* of the same
-   route (e.g. `display: "map"`), not a second route.
+6. **Map view:** in progress on branch `map_view` (not merged until feature complete).
+   Phase 1 (static map) and phase 2 (ferries and terminals) built; Pi testing deferred
+   until issues show up.
+   See "Map view".
 
 ## Backlog
 
+- **Let the map drive the fetch** when there's no sailings entry (using a route given in the
+  map entry). Do not detect "no sailings entry" through MagicMirror's browser `config`
+  object.
 - **Refresh just before departures:** an extra fetch ~1 minute before each scheduled
   and/or estimated departure, to catch the latest space count and status.
 - **Use the WSF `/cacheflushdate` endpoints** (`schedule`, `vessels`, `terminals`) to skip

@@ -9,6 +9,8 @@
     "test": "node --test"
   },
   "dependencies": {
+    "@turf/bbox-clip": "^7.4.0",
+    "d3-geo": "^3.1.1",
     "mariadb": "^3.5.4"
   }
 }

@@ -114,3 +114,66 @@
     text-align: right;
     font-size: 75%;
 }
+/* Map view: the container holds the map image (and, later, ferry/terminal markers).
+   Edges fade to black: a mask makes the container transparent toward each side. */
+.MMM-WaStateFerry-map {
+    position: relative;
+    overflow: hidden;
+}
+
+.MMM-WaStateFerry-map img {
+    display: block;
+}
+
+.MMM-WaStateFerry-map.edge-fade {
+    -webkit-mask-image:
+        linear-gradient(to right, transparent, #000 var(--map-edge-fade), #000 calc(100% - var(--map-edge-fade)), transparent),
+        linear-gradient(to bottom, transparent, #000 var(--map-edge-fade), #000 calc(100% - var(--map-edge-fade)), transparent);
+    -webkit-mask-composite: source-in;
+    mask-image:
+        linear-gradient(to right, transparent, #000 var(--map-edge-fade), #000 calc(100% - var(--map-edge-fade)), transparent),
+        linear-gradient(to bottom, transparent, #000 var(--map-edge-fade), #000 calc(100% - var(--map-edge-fade)), transparent);
+    mask-composite: intersect;
+}
+
+.MMM-WaStateFerry-map-errors {
+    margin: 4px 0 0;
+    padding-left: 16px;
+    text-align: left;
+}
+
+/* Map markers: an overlay the size of the map; each marker is centred on its position */
+.MMM-WaStateFerry-map-markers {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+.MMM-WaStateFerry-map-markers .map-marker {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    line-height: 1;
+}
+
+.MMM-WaStateFerry-map-markers .map-marker i {
+    display: block;
+}
+
+/* Labels: terminal names above the marker, vessel abbreviations below */
+.MMM-WaStateFerry-map-markers .map-label {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    line-height: 1.1;
+}
+
+.MMM-WaStateFerry-map-markers .map-label.above {
+    bottom: 100%;
+    margin-bottom: 2px;
+}
+
+.MMM-WaStateFerry-map-markers .map-label.below {
+    top: 100%;
+    margin-top: 2px;
+}

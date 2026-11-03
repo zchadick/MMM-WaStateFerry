@@ -1,0 +1,18 @@
+{% if map.status == "error" %}
+  <div class="dimmed small">
+    Map settings need attention:
+    <ul class="MMM-WaStateFerry-map-errors xsmall">
+      {% for message in map.errors %}<li>{{ message }}</li>{% endfor %}
+    </ul>
+  </div>
+{% elif map.status == "ready" %}
+  <!-- Map image (built once and cached); edges fade to black via a CSS mask on the container -->
+  <div class="MMM-WaStateFerry-map{% if edgeFadePercent > 0 %} edge-fade{% endif %}"
+       style="width: {{ map.width }}px; height: {{ map.height }}px; --map-edge-fade: {{ edgeFadePercent }}%;">
+    <img src="{{ map.src }}" width="{{ map.width }}" height="{{ map.height }}" alt="">
+    <!-- Ferry and terminal markers; position updates replace only this overlay's content -->
+    <div class="MMM-WaStateFerry-map-markers">{{ markersHtml | safe }}</div>
+  </div>
+{% else %}
+  <div class="dimmed small">Loading map…</div>
+{% endif %}

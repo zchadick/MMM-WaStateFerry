@@ -114,3 +114,30 @@
     text-align: right;
     font-size: 75%;
 }
+/* Map view: the container holds the map image (and, later, ferry/terminal markers).
+   Edges fade to black: a mask makes the container transparent toward each side. */
+.MMM-WaStateFerry-map {
+    position: relative;
+    overflow: hidden;
+}
+
+.MMM-WaStateFerry-map img {
+    display: block;
+}
+
+.MMM-WaStateFerry-map.edge-fade {
+    -webkit-mask-image:
+        linear-gradient(to right, transparent, #000 var(--map-edge-fade), #000 calc(100% - var(--map-edge-fade)), transparent),
+        linear-gradient(to bottom, transparent, #000 var(--map-edge-fade), #000 calc(100% - var(--map-edge-fade)), transparent);
+    -webkit-mask-composite: source-in;
+    mask-image:
+        linear-gradient(to right, transparent, #000 var(--map-edge-fade), #000 calc(100% - var(--map-edge-fade)), transparent),
+        linear-gradient(to bottom, transparent, #000 var(--map-edge-fade), #000 calc(100% - var(--map-edge-fade)), transparent);
+    mask-composite: intersect;
+}
+
+.MMM-WaStateFerry-map-errors {
+    margin: 4px 0 0;
+    padding-left: 16px;
+    text-align: left;
+}

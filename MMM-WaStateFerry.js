@@ -8,13 +8,38 @@ Module.register("MMM-WaStateFerry", {
         animationSpeed: 1000,
         fade: true,
         fadePoint: 0.25, // Start fading 1/4 of the way down the list (same as calendar/weather)
-        manualRefreshCooldown: 30 * 1000 // Manual (e.g. GPIO) refreshes within this time of the last refresh are ignored
+        manualRefreshCooldown: 30 * 1000, // Manual (e.g. GPIO) refreshes within this time of the last refresh are ignored
+
+        // What this entry shows: "sailings" (the list) or "map"
+        type: "sailings",
+
+        // Map view (type: "map"). Corners in decimal degrees; height follows the area's aspect ratio
+        mapUpperLeft: { lat: 47.73803, lon: -122.61430 },
+        mapLowerRight: { lat: 47.57325, lon: -122.32455 },
+        mapWidth: 400,
+        mapDetail: "auto", // "auto" | "low" | "medium" | "high"
+        mapLayers: { depth: true, contours: true, coastline: true },
+        mapColors: {
+            land: "#3a3a3a",
+            water: "#1f3a52",
+            depth: ["#1a3247", "#162b3d", "#122433", "#0e1d2a", "#0a1620", "#060f17"], // 30, 60, 120, 180, 300, 600 ft
+            contour: "rgba(0,0,0,0.25)",
+            coastline: "#626e78"
+        },
+        mapLineWidths: { coastline: 1, contour: 0.5 },
+        mapEdgeFade: 0.06 // share of each side faded to black; 0 = off
     },
 
     // One full cycle of the title icon pulse; must match the CSS animation duration
     pulseCycleMs: 2000,
 
     start () {
+        if (this.config.type === "map") {
+            this.map = { status: "loading" };
+            this.registerMap();
+            return;
+        }
+
         this.sailings = [];
         this.loaded = false;
         this.error = null;
@@ -28,10 +53,15 @@ Module.register("MMM-WaStateFerry", {
     },
 
     getTemplate () {
-        return "MMM-WaStateFerry.njk";
+        return this.config.type === "map" ? "MMM-WaStateFerry-map.njk" : "MMM-WaStateFerry.njk";
     },
 
     getTemplateData () {
+        if (this.config.type === "map") {
+            return { map: this.map, edgeFadePercent: Math.round(this.config.mapEdgeFade * 1000) / 10 };
+        }
+
+
         // Add display-only fields: color classes and bottom-fade opacity
         const sailings = this.sailings.map((sailing, index) => ({
             ...sailing,
@@ -86,6 +116,11 @@ Module.register("MMM-WaStateFerry", {
     },
 
     socketNotificationReceived (notification, payload) {
+        if (this.config.type === "map") {
+            this.mapNotificationReceived(notification, payload);
+            return;
+        }
+
         // One route per installation: the helper broadcasts to every page, so check the route first
         if (payload && payload.routeKey && payload.routeKey !== this.routeKey) {
             const notice = `Only one ferry route is supported per MagicMirror. This entry's route (${this.routeKey}, `
@@ -129,6 +164,36 @@ Module.register("MMM-WaStateFerry", {
             this.fetching = false;
             this.updateDom(speed);
         }, Math.max(0, this.pulseUntil - Date.now()));
+    },
+
+    // Map pages register once with their map settings; the helper builds (or reuses) the map SVG.
+    // Nested defaults are merged here so partial settings (e.g. one color) keep the other defaults.
+    registerMap () {
+        const merged = name => ({ ...this.defaults[name], ...this.config[name] });
+        this.sendSocketNotification("REGISTER", {
+            type: "map",
+            identifier: this.identifier,
+            mapUpperLeft: this.config.mapUpperLeft,
+            mapLowerRight: this.config.mapLowerRight,
+            mapWidth: this.config.mapWidth,
+            mapDetail: this.config.mapDetail,
+            mapLayers: merged("mapLayers"),
+            mapColors: merged("mapColors"),
+            mapLineWidths: merged("mapLineWidths"),
+            mapEdgeFade: this.config.mapEdgeFade
+        });
+    },
+
+    // Only this map's replies count (several maps can be on screen); sailing results are not used yet
+    mapNotificationReceived (notification, payload) {
+        if (!payload || payload.identifier !== this.identifier) return;
+        if (notification === "MAP_READY") {
+            this.map = { status: "ready", src: this.file(`map_cache/${payload.file}`), width: payload.width, height: payload.height };
+            this.updateDom(this.config.animationSpeed);
+        } else if (notification === "MAP_ERROR") {
+            this.map = { status: "error", errors: payload.errors };
+            this.updateDom(this.config.animationSpeed);
+        }
     },
 
     // Register once with the helper, which runs the fetch cycle for every page (weather-module pattern)

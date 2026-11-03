@@ -1,6 +1,11 @@
+const path = require("node:path");
 const NodeHelper = require("node_helper");
 const Log = require("logger");
 const { createDbWriter } = require("./predictive_helpers/dbWriter");
+const { validateMapConfig, createMapBuilder } = require("./map/mapBuilder");
+
+// A map needs a sailings entry to drive the fetch cycle; warn once if none registers within this time
+const MAP_ONLY_WARNING_MS = 60 * 1000;
 
 // Persistent cache for vessel delays across requests
 const vesselDelayCache = {};
@@ -24,20 +29,30 @@ module.exports = NodeHelper.create({
     this.inFlight = null;
     this.lastRefreshAt = 0;
     this.warnedRoutes = new Set();
+    // Map view: built lazily; a map never sets the route or starts fetching
+    this.mapBuilder = null;
+    this.sailingsRegistered = false;
+    this.mapWarningTimer = null;
   },
 
   stop() {
     clearTimeout(this.refreshTimer);
+    clearTimeout(this.mapWarningTimer);
   },
 
   socketNotificationReceived(notification, payload) {
     if (notification === "REGISTER") {
-      this.register(payload);
+      if (payload && payload.type === "map") {
+        this.registerMap(payload);
+      } else {
+        this.register(payload);
+      }
     }
   },
 
   // Each page registers once with its merged settings (weather-module pattern); the helper runs the fetch cycle
   register(settings) {
+    this.sailingsRegistered = true;
     const routeKey = `${settings.departingTerminalID}-${settings.arrivingTerminalID}`;
 
     if (!this.settings) {
@@ -58,6 +73,51 @@ module.exports = NodeHelper.create({
     if (this.latestResult) {
       this.sendSocketNotification(this.latestResult.notification, this.latestResult.payload);
     }
+  },
+
+  // Map pages register once with their merged map settings and get back their own map
+  // (replies carry the page's identifier, so several maps can be on screen at once)
+  registerMap(settings) {
+    const { identifier } = settings;
+    this.warnIfMapOnly();
+
+    const errors = validateMapConfig(settings);
+    if (errors.length > 0) {
+      Log.warn(`[MMM-WaStateFerry] Invalid map settings (${identifier}): ${errors.join("; ")}`);
+      this.sendSocketNotification("MAP_ERROR", { identifier, errors });
+      return Promise.resolve();
+    }
+
+    return this.getMapBuilder().getOrBuildMap(settings)
+      .then(({ file, view }) => {
+        this.sendSocketNotification("MAP_READY", { identifier, file, width: view.width, height: view.height });
+      })
+      .catch(error => {
+        Log.error(`[MMM-WaStateFerry] Map could not be built (${identifier}): ${error.message}`);
+        this.sendSocketNotification("MAP_ERROR", { identifier, errors: [`Map could not be built: ${error.message}`] });
+      });
+  },
+
+  getMapBuilder() {
+    if (!this.mapBuilder) {
+      this.mapBuilder = createMapBuilder({
+        dataDir: path.join(this.path, "map_data"),
+        cacheDir: path.join(this.path, "map_cache"),
+        Log
+      });
+    }
+    return this.mapBuilder;
+  },
+
+  // Pages register in any order, so only warn if no sailings entry has registered a while after a map did
+  warnIfMapOnly() {
+    if (this.sailingsRegistered || this.mapWarningTimer) return;
+    this.mapWarningTimer = setTimeout(() => {
+      if (!this.sailingsRegistered) {
+        Log.warn("[MMM-WaStateFerry] The map does not function without a sailings entry: add an MMM-WaStateFerry "
+          + "entry without type \"map\" (or with type \"sailings\") to config.js. Ferries and terminals won't appear until then.");
+      }
+    }, MAP_ONLY_WARNING_MS);
   },
 
   // One full fetch cycle. Callers: startup, timer, and later pre-departure and GPIO (trigger "manual").

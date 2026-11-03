@@ -16,6 +16,7 @@ data, drive-up vehicle space, cancellations, and the vessel on each sailing.
   last space count seen.
 - **Cancelled** sailings are shown struck through.
 - Refreshes in the background without the display flickering.
+- Optional **map view** of Puget Sound (land, water, and depth bands from NOAA charts).
 - Optional: log raw WSF API data to a **MariaDB** database for your own analysis.
 
 ## Installation
@@ -24,7 +25,7 @@ data, drive-up vehicle space, cancellations, and the vessel on each sailing.
 cd ~/MagicMirror/modules
 git clone https://github.com/zchadick/MMM-WaStateFerry.git
 cd MMM-WaStateFerry
-npm install   # only needed for the optional database logging
+npm install   # needed for the map view and the optional database logging
 ```
 
 You need a free WSDOT Traveler Information API access code. Request one at
@@ -69,6 +70,7 @@ Add the module to the `modules` array in `config/config.js`:
 | `manualRefreshCooldown` | Minimum time between manual refreshes (reserved for upcoming hardware-button support), in milliseconds. | `30000` |
 | `predictionDbUser`, `predictionDbPass`, `predictionDbHost`, `predictionDbName` | Optional MariaDB logging. See [Database logging](#optional-database-logging). | *(not set)* |
 | `predictionDbPort` | MariaDB port. | `3306` |
+| `type` | What this entry shows: `"sailings"` (the list) or `"map"`. See [Map view](#map-view). | `"sailings"` |
 
 ### Terminal IDs
 
@@ -102,6 +104,66 @@ Source: the WSF `terminalbasics` API.
   or else the single most recent one.
 - **Cancelled** sailings are struck through.
 - The ferry icon in the title pulses while new data is loading.
+
+## Map view
+
+Add a second entry with `type: "map"` to show a map of Puget Sound, drawn from NOAA chart
+data: land, water, depth bands, contour lines, and the coastline. The map is drawn once and
+saved (in the module's `map_cache/` folder), so it's quick to show on later starts and costs the
+mirror almost nothing to display. It is rebuilt only when map settings change.
+
+```js
+{
+    module: "MMM-WaStateFerry",
+    position: "top_left",
+    config: {
+        type: "map",
+        mapUpperLeft: { lat: 47.73803, lon: -122.61430 },  // Kingston area
+        mapLowerRight: { lat: 47.57325, lon: -122.32455 }, // Seattle
+        mapWidth: 400
+    }
+},
+```
+
+- **The map needs a sailings entry.** Keep your regular `MMM-WaStateFerry` entry (with
+  `apiKey` and the route); the map uses the same route and doesn't need them repeated. A map
+  without a sailings entry still draws, but a warning is logged.
+- You can show **several maps** at once (for example a close-up and an overview).
+- Requires `npm install` in the module folder.
+
+### Map options
+
+| Option | Description | Default |
+|---|---|---|
+| `mapUpperLeft` | Upper-left (north-west) corner, `{ lat, lon }` in decimal degrees. | `{ lat: 47.73803, lon: -122.61430 }` |
+| `mapLowerRight` | Lower-right (south-east) corner. | `{ lat: 47.57325, lon: -122.32455 }` |
+| `mapWidth` | Map width in pixels (1–2000). The height follows the area's shape. | `400` |
+| `mapDetail` | `"auto"`, `"low"`, `"medium"`, or `"high"`. `"auto"` picks from the map's scale. | `"auto"` |
+| `mapLayers` | `{ depth, contours, coastline }`, each `true` or `false`. | all `true` |
+| `mapColors` | `land`, `water`, `contour`, `coastline`, and `depth` (six colors, 30 ft to 600 ft). | dark grey land, blue water darkening with depth |
+| `mapLineWidths` | `{ coastline, contour }` in pixels. | `{ coastline: 1, contour: 0.5 }` |
+| `mapEdgeFade` | Share of each side that fades to black (`0` to `0.5`; `0` turns it off). | `0.06` |
+
+You only need to list the colors, layers, or line widths you want to change; the rest keep
+their defaults. Coordinates must be decimal degrees (to convert degrees-minutes-seconds:
+degrees + minutes/60 + seconds/3600, negative for west longitudes and south latitudes).
+Invalid map settings are listed on the mirror in place of the map.
+
+**Map shape:** the width is fixed by `mapWidth` and the height follows the area you choose.
+Very wide or very tall areas are limited to between 5:1 and 1:5; the upper-left corner is kept
+and the right or bottom is trimmed.
+
+**Coverage:** the map data covers longitude −123.35 to −122.15 and latitude 47.00 to 48.80
+(Olympia to the San Juan Islands, Hood Canal to Everett). Parts of the map outside that area
+are shown black with cross-hatching and labelled "outside map coverage". Small inland lakes and
+rivers aren't in nautical charts and appear as land.
+
+### Map data and NOAA
+
+The map is derived from NOAA Electronic Navigational Charts, merged and simplified for display.
+**It is not an official NOAA chart and is not for navigation.** This project is not affiliated
+with or endorsed by NOAA. See [`map_data/README.md`](map_data/README.md) for the source, NOAA's
+terms and citation, the data's limitations, and how it was made.
 
 ## One route per MagicMirror
 
@@ -183,8 +245,10 @@ The database test is skipped unless the database options are set in `config/conf
 
 ## Disclaimer
 
-Not affiliated with or endorsed by the Washington State Department of Transportation or
-Washington State Ferries. Data comes from the public WSDOT Traveler Information API.
+Not affiliated with or endorsed by the Washington State Department of Transportation,
+Washington State Ferries, or NOAA. Sailing data comes from the public WSDOT Traveler
+Information API; map data is derived from NOAA Electronic Navigational Charts and is not for
+navigation.
 
 ## License
 

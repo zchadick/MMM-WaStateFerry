@@ -166,3 +166,72 @@ test("a REGISTER for a different route is ignored with one warning", async () =>
   assert.strictEqual(warnings.filter(w => w.includes("route 7-3")).length, 1, "one warning naming both routes");
   assert.ok(warnings[0].includes("active route is 3-7"));
 });
+
+// ---- Map view registrations (the map never starts the fetch cycle) ----
+
+const mapSettings = (overrides = {}) => ({
+  type: "map", identifier: "module_9_MMM-WaStateFerry",
+  mapUpperLeft: { lat: 47.73803, lon: -122.61430 }, mapLowerRight: { lat: 47.57325, lon: -122.32455 },
+  mapWidth: 400, mapDetail: "auto", mapLayers: { depth: true, contours: true, coastline: true },
+  mapColors: { land: "#3a3a3a", water: "#1f3a52", depth: ["#1a3247", "#162b3d", "#122433", "#0e1d2a", "#0a1620", "#060f17"],
+    contour: "rgba(0,0,0,0.25)", coastline: "#626e78" },
+  mapLineWidths: { coastline: 1, contour: 0.5 }, mapEdgeFade: 0.06, ...overrides
+});
+
+// Stand-in builder so these tests don't build real maps
+const stubBuilder = helper => {
+  helper.mapBuilder = { getOrBuildMap: async () => ({ file: "0123456789abcdef.svg", view: { width: 400, height: 338 } }) };
+};
+
+test("a map registration doesn't start fetching and gets its own MAP_READY", async () => {
+  const helper = setup();
+  stubBuilder(helper);
+  // Through the same entry point MagicMirror uses, so the type: "map" routing is tested too
+  helper.socketNotificationReceived("REGISTER", mapSettings());
+  await settle(helper);
+  await Promise.resolve();
+  assert.strictEqual(helper.fetchCycles, 0, "no fetch from a map");
+  assert.strictEqual(helper.routeKey, null, "the map doesn't set the route");
+  assert.deepStrictEqual(helper.sent, [{ notification: "MAP_READY",
+    payload: { identifier: "module_9_MMM-WaStateFerry", file: "0123456789abcdef.svg", width: 400, height: 338 } }]);
+});
+
+test("invalid map settings get MAP_ERROR with the messages", async () => {
+  const helper = setup();
+  stubBuilder(helper);
+  await helper.registerMap(mapSettings({ mapWidth: -5 }));
+  assert.strictEqual(helper.sent.length, 1);
+  assert.strictEqual(helper.sent[0].notification, "MAP_ERROR");
+  assert.strictEqual(helper.sent[0].payload.identifier, "module_9_MMM-WaStateFerry");
+  assert.ok(helper.sent[0].payload.errors.some(e => /mapWidth/.test(e)));
+});
+
+test("map without a sailings entry: one log warning after 60 seconds", async () => {
+  const helper = setup();
+  stubBuilder(helper);
+  await helper.registerMap(mapSettings());
+  await helper.registerMap(mapSettings({ identifier: "module_10_MMM-WaStateFerry" }));
+  await advance(helper, 59 * 1000);
+  assert.strictEqual(warnings.length, 0);
+  await advance(helper, 1000);
+  assert.strictEqual(warnings.filter(w => /does not function without a sailings entry/.test(w)).length, 1);
+});
+
+test("no map warning when a sailings entry registers (before or after the map)", async () => {
+  const before = setup();
+  stubBuilder(before);
+  before.register(settings());
+  await settle(before);
+  await before.registerMap(mapSettings());
+  await advance(before, 2 * MINUTE);
+  assert.strictEqual(warnings.filter(w => /sailings entry/.test(w)).length, 0);
+
+  const after = setup();
+  stubBuilder(after);
+  await after.registerMap(mapSettings());
+  after.register(settings());
+  await settle(after);
+  await advance(after, 2 * MINUTE);
+  assert.strictEqual(warnings.filter(w => /sailings entry/.test(w)).length, 0);
+  assert.strictEqual(after.routeKey, "3-7", "the sailings entry sets the route");
+});

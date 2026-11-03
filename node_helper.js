@@ -5,8 +5,9 @@ const { createDbWriter } = require("./predictive_helpers/dbWriter");
 const { validateMapConfig, createMapBuilder } = require("./map/mapBuilder");
 const { createReferenceData } = require("./map/referenceData");
 const { buildVesselPositions } = require("./map/vesselPositions");
-const { buildSailings } = require("./sailings/buildSailings");
+const { buildSailings, parseWsdotDate } = require("./sailings/buildSailings");
 const { createDelayTracker } = require("./sailings/delays");
+const { createTimetable } = require("./sailings/timetable");
 
 // A map needs a sailings entry to drive the fetch cycle; warn once if none registers within this time
 const MAP_ONLY_WARNING_MS = 60 * 1000;
@@ -54,6 +55,7 @@ module.exports = NodeHelper.create({
     this.departureTimer = null;
     this.dbProblem = false;
     dbStatusListener = problem => this.setDbProblem(problem);
+    this.timetable = null;
   },
 
   stop() {
@@ -149,6 +151,12 @@ module.exports = NodeHelper.create({
       this.reference = createReferenceData({ Log, onUpdate: () => this.publishPositions() });
     }
     return this.reference;
+  },
+
+  // The season's timetable, to spot sailings WSF removed from today's schedule (sailings/timetable.js)
+  getTimetable() {
+    if (!this.timetable) this.timetable = createTimetable({ Log });
+    return this.timetable;
   },
 
   // Called by fetchSchedule() after each successful fetch: keep the vessel feed for the map markers
@@ -275,10 +283,22 @@ module.exports = NodeHelper.create({
         Log.warn(`[MMM-WaStateFerry] ${spaceError.message}`);
       }
 
+      // Today's timetable sailings (loaded on the first fetch of each service day; its response is logged
+      // to the DB then). Null if unavailable: only WSF's cancelled flag marks cancellations.
+      const combo = Array.isArray(scheduleData.TerminalCombos) ? scheduleData.TerminalCombos[0] : null;
+      const scheduledMs = (combo && Array.isArray(combo.Times) ? combo.Times : [])
+        .map(t => parseWsdotDate(t.DepartingTime)).filter(Boolean).map(d => d.getTime());
+      const expected = await this.getTimetable().expectedFor({
+        apiKey, departingTerminalID, arrivingTerminalID, scheduledMs,
+        onResponse: (httpStatus, body) => this.dbWriter.write(dbConfig, [
+          { snapshotTime: new Date(), endpoint: "sailings", departingTerminalID, arrivingTerminalID, httpStatus, body }
+        ])
+      });
+
       // Rows for the display (see sailings/buildSailings.js); all times are UTC timestamps
       const built = buildSailings({
         scheduleData, vesselsData, spaceData, departingTerminalID, arrivingTerminalID, maxSailings,
-        now: Date.now(), delays: delayTracker, sailingMemory
+        now: Date.now(), delays: delayTracker, sailingMemory, expected
       });
       Log.debug(`[MMM-WaStateFerry] Vessel delays (ms): ${JSON.stringify(delayTracker.snapshot())}`);
 

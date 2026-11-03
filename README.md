@@ -15,7 +15,9 @@ data, drive-up vehicle space, cancellations, and the vessel on each sailing.
 - The most recent departure stays on screen with its **actual departure time** and the
   last space count seen.
 - **Cancelled** sailings are shown struck through.
-- Refreshes in the background without the display flickering.
+- Refreshes in the background without the display flickering, plus extra refreshes one minute
+  before each departure (scheduled and estimated) to catch the latest status and space count.
+- All times are shown in Seattle (Pacific) time, whatever the mirror's own time zone.
 - Optional **map view** of Puget Sound (land, water, and depth bands from NOAA charts).
 - Optional: log raw WSF API data to a **MariaDB** database for your own analysis.
 
@@ -103,7 +105,10 @@ Source: the WSF `terminalbasics` API.
 - **Departed** sailings are dimmed. Every sailing that left in the last 30 minutes is shown,
   or else the single most recent one.
 - **Cancelled** sailings are struck through.
-- The ferry icon in the title pulses while new data is loading.
+- The ferry icon in the title pulses while new data is loading, and turns **red** while the
+  optional database logging is configured but not working (see [Database logging](#optional-database-logging)).
+- If an update fails, the last good data stays on screen and the footer says "(latest update
+  failed)".
 
 ## Map view
 
@@ -214,11 +219,14 @@ Leave them out and the module works without a database.
 
 - Requires `npm install` in the module folder (installs the `mariadb` package).
 - The database and an `api_snapshots` table are created automatically if they don't exist.
-- Each refresh writes three rows: one per API response, with a shared UTC timestamp, the
-  route, the HTTP status, and the raw JSON body.
+- Each refresh writes three rows: one per API response (schedule, vessel locations, sailing
+  space), with a shared UTC timestamp, the route, the HTTP status, and the raw JSON body.
 - The module only ever **inserts** rows; it never updates or deletes data.
 - If the database is unreachable, writes are queued in memory (up to about a day) and
   retried; the display is never affected.
+- **Red title icon:** while logging is configured but not working (writes failing, or the
+  `mariadb` package not installed), the ferry icon in the list's title turns red. It returns
+  to normal once writes succeed again; details are in the MagicMirror log.
 
 ```js
 config: {
@@ -233,7 +241,8 @@ config: {
 ## Limitations
 
 - WSF doesn't publish delays, so estimated times are inferred from where each vessel is
-  and how late it left on its last crossing.
+  and how late it left on its last crossing. Delays start fresh each day: once the day's last
+  sailing has left, and when the schedule moves to a new day.
 - A departed sailing's space count is the last one seen before its scheduled departure.
   For a late boat, more cars may have boarded after that.
 - Actual departures, last space counts, and cancellations are kept in memory, so

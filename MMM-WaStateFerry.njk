@@ -1,13 +1,14 @@
-{% if not loaded %}
-  <div class="dimmed small">Loading ferry schedule…</div>
-{% elif error %}
+{% if error and sailings.length == 0 %}
+  <!-- An error with no data to show (e.g. the first fetch failed, or the one-route notice) -->
   <div class="dimmed small">Error: {{ error }}</div>
+{% elif not loaded %}
+  <div class="dimmed small">Loading ferry schedule…</div>
 {% elif sailings.length == 0 %}
   <div class="dimmed small">No upcoming sailings today.</div>
 {% else %}
   <div class="MMM-WaStateFerry-header medium">
-    <!-- Ferry icon (pulses while fetching new data) -->
-    <i class="fa-solid fa-ferry ferry-icon normal{% if fetching %} pulsing{% endif %}"></i>
+    <!-- Ferry icon (pulses while fetching new data; red while the prediction DB has a problem) -->
+    <i class="fa-solid fa-ferry ferry-icon normal{% if fetching %} pulsing{% endif %}{% if dbProblem %} db-problem{% endif %}"></i>
     <span class="normal">{{ departingTerminalName }}</span>
     <span class="dimmed"> → </span>
     <span class="normal">{{ arrivingTerminalName }}</span>
@@ -43,7 +44,7 @@
     <!-- Last Updated Footer (not faded) -->
     {% if lastUpdated %}
     <tr class="last-updated-row">
-      <td colspan="4" class="last-updated dimmed">last updated on {{ lastUpdated }}</td>
+      <td colspan="4" class="last-updated dimmed">last updated on {{ lastUpdated }}{% if error %} (latest update failed){% endif %}</td>
     </tr>
     {% endif %}
   </table>

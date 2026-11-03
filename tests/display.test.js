@@ -126,3 +126,91 @@ test("map corners have no defaults (they must be set in config.js); mapWidth def
   assert.strictEqual(definition.defaults.mapLowerRight, undefined);
   assert.strictEqual(definition.defaults.mapWidth, 400);
 });
+
+test("times are shown in Seattle time, whatever the server's time zone", () => {
+  const savedTz = process.env.TZ;
+  process.env.TZ = "Asia/Tokyo";
+  try {
+    const m = moduleWithConfig();
+    const t = Date.UTC(2026, 10, 3, 23, 5); // 3:05 PM in Seattle (PST), 8:05 AM next day in Tokyo
+    assert.strictEqual(m.formatTime(t), "3:05 PM");
+    assert.strictEqual(m.formatLastUpdated(t), "03-Nov-2026 @ 3:05 pm");
+    assert.strictEqual(m.formatTime(undefined), "N/A");
+  } finally {
+    if (savedTz === undefined) delete process.env.TZ; else process.env.TZ = savedTz;
+  }
+});
+
+test("the page formats the helper's timestamps into the row text", () => {
+  const m = moduleWithConfig();
+  const t = Date.UTC(2026, 10, 3, 23, 5);
+  m.sailings = [{ departingTimestamp: t, estDeptTimestamp: t + 7 * 60000, departedTimestamp: t + 2 * 60000, delayMinutes: 7, hasDeparted: false }];
+  m.loaded = true; m.error = null; m.departingTerminalName = "A"; m.arrivingTerminalName = "B";
+  m.lastUpdatedTimestamp = t; m.fetching = false; m.dbProblem = false;
+  const row = m.getTemplateData().sailings[0];
+  assert.deepStrictEqual([row.departingTime, row.estDeptTime, row.departedTime], ["3:05 PM", "3:12 PM", "3:07 PM"]);
+  assert.strictEqual(m.getTemplateData().lastUpdated, "03-Nov-2026 @ 3:05 pm");
+});
+
+test("an error after a successful load keeps the last data; an error before any data shows the error", () => {
+  const m = moduleWithConfig();
+  m.routeKey = "3-7"; m.pulseUntil = 0; m.updateDom = () => {};
+  m.sailings = []; m.loaded = false; m.error = null;
+  m.socketNotificationReceived("FERRY_ERROR", { routeKey: "3-7", message: "HTTP 500 on schedule" });
+  assert.strictEqual(m.error, "HTTP 500 on schedule");
+  assert.deepStrictEqual(m.sailings, [], "nothing to keep yet: the template shows the error");
+
+  m.socketNotificationReceived("FERRY_SCHEDULE", { routeKey: "3-7", sailings: [{ departingTimestamp: 1 }], departingTerminalName: "A", arrivingTerminalName: "B", lastUpdatedTimestamp: 1 });
+  assert.strictEqual(m.error, null);
+  m.socketNotificationReceived("FERRY_ERROR", { routeKey: "3-7", message: "HTTP 500 on schedule" });
+  assert.strictEqual(m.sailings.length, 1, "last good data kept");
+  assert.strictEqual(m.error, "HTTP 500 on schedule", "the footer notes the failed update");
+});
+
+test("DB_STATUS turns the title icon red and back, without re-rendering", () => {
+  const m = moduleWithConfig();
+  m.routeKey = "3-7";
+  const classes = new Set();
+  global.document = { querySelector: () => ({ classList: { toggle: (c, on) => (on ? classes.add(c) : classes.delete(c)), add: c => classes.add(c) } }) };
+  let renders = 0;
+  m.updateDom = () => renders++;
+  m.socketNotificationReceived("DB_STATUS", { routeKey: "3-7", problem: true });
+  assert.ok(classes.has("db-problem"));
+  assert.strictEqual(m.dbProblem, true);
+  m.socketNotificationReceived("DB_STATUS", { routeKey: "3-7", problem: false });
+  assert.ok(!classes.has("db-problem"));
+  assert.strictEqual(renders, 0);
+  delete global.document;
+});
+
+// Render the real template with MagicMirror's own Nunjucks (skipped if it isn't installed beside this module)
+const nunjucks = (() => {
+  try { return require(path.resolve(__dirname, "../../../node_modules/nunjucks")); } catch { return null; }
+})();
+const render = data => new nunjucks.Environment(new nunjucks.FileSystemLoader(path.resolve(__dirname, ".."))).render("MMM-WaStateFerry.njk", data);
+const templateData = overrides => ({
+  loaded: true, error: null, departingTerminalName: "Bainbridge Island", arrivingTerminalName: "Seattle",
+  lastUpdated: "03-Nov-2026 @ 3:05 pm", fetching: false, dbProblem: false,
+  sailings: [{ departingTime: "3:50 PM", estDeptTime: "3:51 PM", departedTime: "3:51 PM", vesselName: "Wenatchee", delayMinutes: 1,
+    hasDeparted: false, isCancelled: false, driveUpSpaceCount: 170, maxSpaceCount: 197, opacity: 1, delayClass: "", spaceClass: "" }],
+  ...overrides
+});
+
+test("template: an error before any data shows the error, not Loading", { skip: !nunjucks && "MagicMirror's nunjucks not found" }, () => {
+  const html = render(templateData({ loaded: false, sailings: [], error: "HTTP 500 on schedule" }));
+  assert.match(html, /Error: HTTP 500 on schedule/);
+  assert.doesNotMatch(html, /Loading/);
+});
+
+test("template: an error after a load keeps the table and notes the failed update", { skip: !nunjucks && "MagicMirror's nunjucks not found" }, () => {
+  const html = render(templateData({ error: "HTTP 500 on schedule" }));
+  assert.match(html, /Wenatchee/);
+  assert.match(html, /last updated on 03-Nov-2026 @ 3:05 pm \(latest update failed\)/);
+  assert.doesNotMatch(html, /Error:/);
+});
+
+test("template: the title icon gets the DB-problem class", { skip: !nunjucks && "MagicMirror's nunjucks not found" }, () => {
+  assert.match(render(templateData({ dbProblem: true })), /ferry-icon normal db-problem/);
+  assert.doesNotMatch(render(templateData({})), /db-problem/);
+  assert.match(render(templateData({ loaded: false, sailings: [] })), /Loading ferry schedule/);
+});

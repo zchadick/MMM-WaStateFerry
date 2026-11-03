@@ -46,6 +46,9 @@ Module.register("MMM-WaStateFerry", {
     // One full cycle of the title icon pulse; must match the CSS animation duration
     pulseCycleMs: 2000,
 
+    // All times arrive from the helper as UTC timestamps and are always shown in Seattle time
+    timeZone: "America/Los_Angeles",
+
     start () {
         if (this.config.type === "map") {
             this.map = { status: "loading" };
@@ -59,7 +62,8 @@ Module.register("MMM-WaStateFerry", {
         this.error = null;
         this.departingTerminalName = "";
         this.arrivingTerminalName = "";
-        this.lastUpdated = "";
+        this.lastUpdatedTimestamp = null;
+        this.dbProblem = false;
         this.fetching = false;
         this.pulseUntil = 0;
         this.routeKey = `${this.config.departingTerminalID}-${this.config.arrivingTerminalID}`;
@@ -76,9 +80,12 @@ Module.register("MMM-WaStateFerry", {
         }
 
 
-        // Add display-only fields: color classes and bottom-fade opacity
+        // Add display-only fields: Seattle-time text, color classes, and bottom-fade opacity
         const sailings = this.sailings.map((sailing, index) => ({
             ...sailing,
+            departingTime: this.formatTime(sailing.departingTimestamp),
+            estDeptTime: this.formatTime(sailing.estDeptTimestamp),
+            departedTime: this.formatTime(sailing.departedTimestamp),
             delayClass: this.delayClass(sailing.delayMinutes),
             // Space colors only for upcoming, non-cancelled sailings (departed counts are uncolored)
             spaceClass: sailing.hasDeparted || sailing.isCancelled ? "" : this.spaceClass(sailing.driveUpSpaceCount, sailing.maxSpaceCount),
@@ -94,9 +101,25 @@ Module.register("MMM-WaStateFerry", {
             sailings: sailings,
             departingTerminalName: this.departingTerminalName,
             arrivingTerminalName: this.arrivingTerminalName,
-            lastUpdated: this.lastUpdated,
-            fetching: this.fetching
+            lastUpdated: this.lastUpdatedTimestamp ? this.formatLastUpdated(this.lastUpdatedTimestamp) : "",
+            fetching: this.fetching,
+            dbProblem: this.dbProblem
         };
+    },
+
+    // Time of day in Seattle, e.g. "3:50 PM"
+    formatTime (timestamp) {
+        if (!Number.isFinite(timestamp)) return "N/A";
+        return new Date(timestamp).toLocaleTimeString("en-US", { timeZone: this.timeZone, hour: "numeric", minute: "2-digit" });
+    },
+
+    // "Last updated" in Seattle time: DD-MMM-YYYY @ h:mm am/pm
+    formatLastUpdated (timestamp) {
+        const date = new Date(timestamp);
+        const part = options => date.toLocaleString("en-US", { timeZone: this.timeZone, ...options });
+        const day = part({ day: "2-digit" });
+        const time = part({ hour: "numeric", minute: "2-digit", hour12: true }).toLowerCase();
+        return `${day}-${part({ month: "short" })}-${part({ year: "numeric" })} @ ${time}`;
     },
 
     // Color class for the estimated departure time, by delay in minutes
@@ -159,15 +182,21 @@ Module.register("MMM-WaStateFerry", {
             this.sailings = payload.sailings;
             this.departingTerminalName = payload.departingTerminalName;
             this.arrivingTerminalName = payload.arrivingTerminalName;
-            this.lastUpdated = payload.lastUpdated;
+            this.lastUpdatedTimestamp = payload.lastUpdatedTimestamp;
             // Fade in on first load only; later refreshes swap in without the fade-out/in
             const firstLoad = !this.loaded;
             this.loaded = true;
             this.error = null;
             this.finishFetch(firstLoad ? this.config.animationSpeed : 0);
         } else if (notification === "FERRY_ERROR") {
+            // Keep showing the last good data (the footer notes the failed update); with no data yet, show the error
             this.error = payload.message;
-            this.finishFetch(this.config.animationSpeed);
+            this.finishFetch(this.sailings.length > 0 ? 0 : this.config.animationSpeed);
+        } else if (notification === "DB_STATUS") {
+            // Prediction DB problem (configured but failing): red title icon; toggled in place, no re-render
+            this.dbProblem = payload.problem === true;
+            const icon = document.querySelector(`#${this.identifier} .ferry-icon`);
+            if (icon) icon.classList.toggle("db-problem", this.dbProblem);
         }
     },
 

@@ -62,15 +62,24 @@ async function insertSnapshots(conn, qualifiedTable, rows) {
   ]));
 }
 
-// Create a writer that queues batches in memory and flushes them to MariaDB
-function createDbWriter(Log) {
+// Create a writer that queues batches in memory and flushes them to MariaDB.
+// onStatusChange(problem) is called when an active DB problem starts or clears: writes failing, or the
+// mariadb package missing while DB logging is configured (the display shows this as a red title icon).
+function createDbWriter(Log, { onStatusChange = () => {} } = {}) {
   let mariadb = null;
   let disabled = false;
   let schemaReady = false;
   let flushing = false;
   let failing = false;
   let lastSuccess = null;
+  let problem = false;
   const queue = [];
+
+  function setProblem(value) {
+    if (problem === value) return;
+    problem = value;
+    onStatusChange(problem);
+  }
 
   // Load the mariadb package only when DB logging is actually configured
   function loadMariadb() {
@@ -81,6 +90,7 @@ function createDbWriter(Log) {
     } catch (error) {
       disabled = true;
       Log.error(MISSING_PACKAGE_MESSAGE);
+      setProblem(true);
       return false;
     }
   }
@@ -117,6 +127,7 @@ function createDbWriter(Log) {
       }
 
       lastSuccess = new Date();
+      setProblem(false);
       if (failing) {
         failing = false;
         Log.info(`[MMM-WaStateFerry] DB writes recovered; wrote ${written} queued batch(es).`);
@@ -124,6 +135,7 @@ function createDbWriter(Log) {
         Log.debug(`[MMM-WaStateFerry] DB write ok (${written} batch(es)).`);
       }
     } catch (error) {
+      setProblem(true);
       if (!failing) {
         failing = true;
         const last = lastSuccess ? lastSuccess.toISOString() : "never";
@@ -170,7 +182,7 @@ function createDbWriter(Log) {
 
   return {
     write,
-    getStatus: () => ({ failing, lastSuccess, queued: queue.length })
+    getStatus: () => ({ failing, problem, lastSuccess, queued: queue.length })
   };
 }
 

@@ -76,7 +76,9 @@ async function fetchAt(helper, now, { sailings, vessels = [], space = [] }, maxS
   return last.payload.sailings;
 }
 
-const row = (sailings, departingTime) => sailings.find(s => s.departingTime === departingTime);
+// The helper sends UTC timestamps; show them as Seattle times (as the page does) for readable assertions
+const seattle = ms => new Date(ms).toLocaleTimeString("en-US", { timeZone: "America/Los_Angeles", hour: "numeric", minute: "2-digit" });
+const row = (sailings, departingTime) => sailings.find(s => seattle(s.departingTimestamp) === departingTime);
 
 const DAY = [
   { at: at(9, 40), vessel: 25 },
@@ -99,7 +101,7 @@ test("#3: a boat underway shows its real departure time after Dep:", async () =>
   });
   const r = row(sailings, "9:40 AM");
   assert.strictEqual(r.hasDeparted, true);
-  assert.strictEqual(r.departedTime, "9:43 AM");
+  assert.strictEqual(seattle(r.departedTimestamp), "9:43 AM");
 });
 
 test("#3: the real departure time is remembered after the boat docks", async () => {
@@ -113,7 +115,7 @@ test("#3: the real departure time is remembered after the boat docks", async () 
     sailings: DAY,
     vessels: [{ id: 25, atDock: true, from: 7, scheduled: at(10, 35) }]
   });
-  assert.strictEqual(row(sailings, "9:40 AM").departedTime, "9:43 AM");
+  assert.strictEqual(seattle(row(sailings, "9:40 AM").departedTimestamp), "9:43 AM");
 });
 
 test("#3: a different vessel with the same scheduled time is not matched", async () => {
@@ -125,7 +127,7 @@ test("#3: a different vessel with the same scheduled time is not matched", async
   });
   const r = row(sailings, "2:05 PM");
   assert.strictEqual(r.hasDeparted, true, "departed by estimate (no real data for Puyallup)");
-  assert.strictEqual(r.departedTime, "2:05 PM", "must not use Wenatchee's 2:07 PM");
+  assert.strictEqual(seattle(r.departedTimestamp), "2:05 PM", "must not use Wenatchee's 2:07 PM");
 });
 
 test("#11: a late boat still at the dock stays upcoming", async () => {
@@ -163,15 +165,15 @@ test("#10: a departed sailing keeps the last space count seen", async () => {
 test("#11: shows every departure in the last 30 minutes, else only the most recent", async () => {
   const twoRecent = [{ at: at(10, 0), vessel: 25 }, { at: at(10, 20), vessel: 37 }, { at: at(11, 0), vessel: 25 }];
   let sailings = await fetchAt(loadHelper(), at(10, 25), { sailings: twoRecent });
-  assert.deepStrictEqual(sailings.filter(s => s.hasDeparted).map(s => s.departingTime), ["10:00 AM", "10:20 AM"]);
+  assert.deepStrictEqual(sailings.filter(s => s.hasDeparted).map(s => seattle(s.departingTimestamp)), ["10:00 AM", "10:20 AM"]);
 
   // 9:40 left 60 min ago, 10:25 left 15 min ago: only 10:25 is in the window
   sailings = await fetchAt(loadHelper(), at(10, 40), { sailings: DAY });
-  assert.deepStrictEqual(sailings.filter(s => s.hasDeparted).map(s => s.departingTime), ["10:25 AM"]);
+  assert.deepStrictEqual(sailings.filter(s => s.hasDeparted).map(s => seattle(s.departingTimestamp)), ["10:25 AM"]);
 
   // Nothing in the last 30 minutes: still show the single most recent departure
   sailings = await fetchAt(loadHelper(), at(11, 10), { sailings: DAY });
-  assert.deepStrictEqual(sailings.filter(s => s.hasDeparted).map(s => s.departingTime), ["10:25 AM"]);
+  assert.deepStrictEqual(sailings.filter(s => s.hasDeparted).map(s => seattle(s.departingTimestamp)), ["10:25 AM"]);
 });
 
 test("#11: departed rows don't count toward maxSailings", async () => {
@@ -197,13 +199,13 @@ test("#11: cancelled sailings show, are remembered, and count as the most recent
   r = row(sailings, "11:30 AM");
   assert.strictEqual(r.isCancelled, true);
   assert.strictEqual(r.hasDeparted, true);
-  assert.deepStrictEqual(sailings.filter(s => s.hasDeparted).map(s => s.departingTime), ["11:30 AM"]);
+  assert.deepStrictEqual(sailings.filter(s => s.hasDeparted).map(s => seattle(s.departingTimestamp)), ["11:30 AM"]);
 });
 
 test("after a restart (no real data), departures fall back to the estimate", async () => {
   const sailings = await fetchAt(loadHelper(), at(10, 40), { sailings: DAY });
   const r = row(sailings, "10:25 AM");
   assert.strictEqual(r.hasDeparted, true);
-  assert.strictEqual(r.departedTime, "10:25 AM");
+  assert.strictEqual(seattle(r.departedTimestamp), "10:25 AM");
   assert.strictEqual(r.driveUpSpaceCount, null);
 });

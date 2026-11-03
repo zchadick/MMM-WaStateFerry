@@ -26,7 +26,8 @@ const BODIES = {
   vessellocations: [],
   terminalsailingspace: { DepartingSpaces: [] },
   vesselbasics: [],
-  terminallocations: []
+  terminallocations: [],
+  activeseasons: [] // no timetable (see timetable.test.js)
 };
 
 // The helper under test, stopped after each test (even a failing one) so no real timer outlives the mock clock

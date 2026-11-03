@@ -131,6 +131,34 @@ test("DB writer: no problem reported when DB logging isn't configured", async ()
   assert.deepStrictEqual(changes, []);
 });
 
+test("the timetable is logged once a day, and a sailing removed from the schedule reaches the page as cancelled", async () => {
+  // Timetable (Friday): 10:30, 11:00, 12:00; WSF's schedule today has dropped 11:00
+  const helper = setup({ sailings: [{ at: at(10, 30), vessel: 25 }, { at: at(12, 0), vessel: 25 }] });
+  const tod = (h, m) => `/Date(${Date.UTC(1900, 0, 1, h + 8, m)}-0800)/`; // timetable times are in Pacific standard time
+  const timetable = JSON.stringify([{ DayOpDescription: "Monday through Friday",
+    ActiveDateRanges: [{ DateFrom: wsdot(Date.UTC(2026, 8, 20, 7)), DateThru: wsdot(Date.UTC(2026, 11, 26, 8)) }],
+    Journs: [[10, 30], [11, 0], [12, 0]].map(([h, m]) => ({ VesselID: 25, VesselName: "Puyallup",
+      TerminalTimes: [{ TerminalID: 3, Time: tod(h, m), DepArrIndicator: 1, IsNA: false }] })) }]);
+  const stand = global.fetch;
+  global.fetch = async url => {
+    if (url.includes("/activeseasons")) return Response.json([{ ScheduleID: 198, ScheduleStart: wsdot(Date.UTC(2026, 8, 20, 7)), ScheduleEnd: wsdot(Date.UTC(2026, 11, 26, 8)) }]);
+    if (url.includes("/routes/")) return Response.json([{ RouteID: 5, RouteAbbrev: "sea-bi" }]);
+    if (url.includes("/schedroutes/")) return Response.json([{ RouteID: 5, SchedRouteID: 2486, ContingencyOnly: false }]);
+    if (url.includes("/sailings/2486")) return new Response(timetable, { status: 200 });
+    return stand(url);
+  };
+  const logged = [];
+  helper.dbWriter = { write: (dbConfig, rows) => logged.push(...rows.map(r => r.endpoint)) };
+  helper.register(settings);
+  await settle(helper);
+  await advance(helper, 5 * MIN);
+  assert.strictEqual(logged.filter(e => e === "sailings").length, 1, "timetable logged once");
+  assert.strictEqual(logged.filter(e => e === "scheduletoday").length, 2);
+  const rows = helper.latestResult.payload.sailings;
+  assert.deepStrictEqual(rows.map(r => [r.departingTimestamp, r.isCancelled]),
+    [[at(10, 30), false], [at(11, 0), true], [at(12, 0), false]]);
+});
+
 test("each refresh logs all three responses to the DB", async () => {
   const helper = setup({ sailings: [{ at: at(11, 0), vessel: 25 }] });
   const logged = [];

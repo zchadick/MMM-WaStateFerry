@@ -14,7 +14,9 @@ data, drive-up vehicle space, cancellations, and the vessel on each sailing.
 - **Drive-up spaces left** on each sailing, colored as boats fill up.
 - The most recent departure stays on screen with its **actual departure time** and the
   last space count seen.
-- **Cancelled** sailings are shown struck through.
+- **Cancelled** sailings are shown struck through, including sailings WSF quietly removes from
+  the day's schedule (the usual way WSF cancels a sailing), found by comparing against the
+  season's published timetable.
 - Refreshes in the background without the display flickering, plus extra refreshes one minute
   before each departure (scheduled and estimated) to catch the latest status and space count.
 - All times are shown in Seattle (Pacific) time, whatever the mirror's own time zone.
@@ -104,7 +106,9 @@ Source: the WSF `terminalbasics` API.
 - **Space colors**: 50% or less left yellow, 10% or less red, full purple.
 - **Departed** sailings are dimmed. Every sailing that left in the last 30 minutes is shown,
   or else the single most recent one.
-- **Cancelled** sailings are struck through.
+- **Cancelled** sailings are struck through. A sailing in the season's timetable that WSF has
+  removed from today's schedule counts as cancelled as soon as it disappears, and returns to
+  normal if WSF puts it back. If a boat still leaves on a removed sailing, it shows as departed.
 - The ferry icon in the title pulses while new data is loading, and turns **red** while the
   optional database logging is configured but not working (see [Database logging](#optional-database-logging)).
 - If an update fails, the last good data stays on screen and the footer says "(latest update
@@ -221,6 +225,7 @@ Leave them out and the module works without a database.
 - The database and an `api_snapshots` table are created automatically if they don't exist.
 - Each refresh writes three rows: one per API response (schedule, vessel locations, sailing
   space), with a shared UTC timestamp, the route, the HTTP status, and the raw JSON body.
+- Once a day, the season's timetable for the route is saved as one more row (`sailings`).
 - The module only ever **inserts** rows; it never updates or deletes data.
 - If the database is unreachable, writes are queued in memory (up to about a day) and
   retried; the display is never affected.
@@ -247,6 +252,12 @@ config: {
   For a late boat, more cars may have boarded after that.
 - Actual departures, last space counts, and cancellations are kept in memory, so
   immediately after a MagicMirror restart, sailings that already left show estimates.
+- Removed sailings are detected only on simple two-terminal routes (e.g. Bainbridge Island ↔
+  Seattle): WSF's timetables for multi-stop routes don't say where each departure goes. On
+  those routes, and on days WSF runs a special schedule that doesn't match the timetable,
+  only sailings WSF flags as cancelled are shown struck through.
+- After a restart, a removed sailing whose time has already passed may show as cancelled even if
+  a boat ran it late (the module didn't see it leave).
 - The WSDOT APIs occasionally return errors; the module keeps showing the last good data
   where it can.
 

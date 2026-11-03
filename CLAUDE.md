@@ -72,8 +72,11 @@ Automated (`tests/`), from the module directory: `node --test` (or `npm test`).
   MagicMirror's own Nunjucks (skipped if it isn't installed beside the module).
 - `delays.test.js`: delay tracking and the end-of-day / new-day flush, through
   `buildSailings` directly (pure; no stand-ins needed).
-- `refresh.test.js`: pre-departure refreshes, DB rows per refresh, and the DB-problem status
-  (including a real refused connection to port 1 on localhost).
+- `refresh.test.js`: pre-departure refreshes, DB rows per refresh (and the daily timetable row),
+  and the DB-problem status (including a real refused connection to port 1 on localhost).
+- `timetable.test.js`: choosing the day's timetable (weekday/weekend/holiday, variants, special
+  schedules), after-midnight and daylight-time edge cases, removed sailings in the list, and
+  loading once per service day; stand-in timetables, no network.
 - `mapBuilder.test.js`: map validation, view/aspect ratio, detail level, cache keys,
   background builds and caching, cross-hatching; mostly a tiny made-up data set, plus one
   smoke test on the real `map_data/low`.
@@ -103,13 +106,29 @@ Endpoints in use (base `https://www.wsdot.wa.gov/ferries/api`):
 | `/terminals/rest/terminalsailingspace/{dep}` | drive-up space and cancellations for upcoming departures from the departing terminal | sailing list | every refresh (logged to DB); optional: on failure spaces show `N/A` |
 | `/vessels/rest/vesselbasics` | vessel abbreviations (`VesselAbbrev`, e.g. `PUY`) | map marker labels | when the sailings entry registers, then daily (`map/referenceData.js`); not logged |
 | `/terminals/rest/terminallocations` | terminal names and latitude/longitude | map terminal markers | when the sailings entry registers, then daily (`map/referenceData.js`); not logged |
+| `/schedule/rest/activeseasons` → `/schedule/rest/routes/{date}/{dep}/{arr}` → `/schedule/rest/schedroutes/{ScheduleID}` → `/schedule/rest/sailings/{SchedRouteID}` | the season's published timetable for the route (`sailings`): every day type, with date ranges | sailing list (removed sailings = cancelled) | first fetch of each service day (`sailings/timetable.js`); only `sailings` is logged |
+
+Notes on cancellations (checked against logged data):
+- **WSF cancels most sailings by removing them from `scheduletoday`**, not by flagging them.
+  `IsCancelled` (space feed) is set only sometimes (e.g. weather). Removals can happen before
+  the day starts, and can be undone (a sailing removed for 30 min and then restored, all run
+  by a swapped vessel). WSF has also removed a sailing that then ran 45 min late.
+- `/schedule/{date}/{dep}/{arr}` for today is identical to `scheduletoday` (also changes);
+  past dates are rejected (HTTP 400). Future dates already apply holidays.
+- The timetable (`sailings`) doesn't change during the day. Times are times of day on a
+  1900-01-01 placeholder date (Pacific standard offset); journeys are in sailing order, so a
+  time earlier than the previous one is after midnight. There is no holiday list: groups say
+  e.g. "Saturday, Sunday and Holidays", and several variants (2-boat/3-boat, "HOLIDAYS ONLY")
+  can be active on the same dates.
+- Multi-stop timetables (e.g. `f-v-s`) list only the departure terminal of each journey, not
+  where it goes, so they can't be compared with one direction's schedule.
 
 Notes on `terminalsailingspace`:
 - A sailing drops off this feed ~1.5–6.5 min after its *scheduled* time, even if the boat
   is late.
 - Pick the `SpaceForArrivalTerminals[]` entry whose `TerminalID` (or `ArrivalTerminalIDs`)
   matches the arriving terminal; use `DriveUpSpaceCount` and `MaxSpaceCount`. `IsCancelled`
-  is the only source of cancellations.
+  is one of two cancellation sources (see notes on cancellations above).
 - Matched to scheduled sailings on departure time only (WSF sometimes swaps vessels).
 
 Reference only (not used by the module): `/terminals/rest/terminalbasics` (terminal ID →
@@ -135,7 +154,8 @@ name; some names have trailing whitespace, e.g. `"Coupeville "`). 3 = Bainbridge
   problems to pages as `DB_STATUS`, and map data as `MAP_READY` / `MAP_POSITIONS`.
 - `sailings/`: the sailing list's processing, separate from fetching. `buildSailings.js` is a
   pure step (WSF responses + state + now → rows with **UTC timestamps**); `delays.js` tracks
-  per-vessel delays and flushes them at the end of the day.
+  per-vessel delays and flushes them at the end of the day; `timetable.js` loads the season's
+  timetable once per service day and picks today's expected sailings.
 - `MMM-WaStateFerry.njk` + `.css`: template and styles. `MMM-WaStateFerry-map.njk`: the
   map view's template (chosen when `type: "map"`).
 - `predictive_helpers/`: prediction-related code, JS and (future) Python side by side.
@@ -179,7 +199,17 @@ calls after a restart.
   upcoming even if late. With no real data (e.g. after a restart), the estimate decides.
 - **Spaces after departure:** the last count seen before the sailing dropped off the space
   feed (i.e. before its scheduled time).
-- **Cancellations:** remembered from the space feed's `IsCancelled`.
+- **Cancellations**, from two sources:
+  - The space feed's `IsCancelled`, remembered once seen.
+  - **Removed sailings:** a sailing in today's timetable but missing from `scheduletoday` is
+    cancelled right away, and normal again if WSF restores it (recomputed every fetch, not
+    remembered). Exception: if a vessel leaves this terminal with that sailing's
+    `ScheduledDeparture` (any vessel, since WSF swaps them), it is a normal departure with that
+    vessel's name. Today's timetable is the active group closest to `scheduletoday` (most
+    matches, then fewest extras), so holidays need no list; with under 80% of today's sailings
+    matched, or on multi-stop routes, no timetable is used. Times are matched by Seattle clock
+    time (settles the repeated hour when daylight time ends). If the timetable fails to load,
+    retried after an hour; meanwhile only `IsCancelled` applies.
 - Memory entries are pruned 24 hours after their scheduled time.
 - **Pre-departure refreshes:** besides the `updateInterval` timer, an extra refresh runs 1
   minute before the next upcoming (non-cancelled) sailing's scheduled and estimated
@@ -285,7 +315,8 @@ data; parsing, dedup, analysis, and prediction happen in post-processing on the 
   `predictionDbPass`, `predictionDbHost`, `predictionDbName`), whatever their values.
   Any key missing → silently off. The page forwards only the keys that exist.
 - Each fetch writes three rows (one per response, same `snapshot_utc`), including HTTP
-  errors. Duplicates are fine.
+  errors. Duplicates are fine. The route's timetable (`sailings`) is written once per service
+  day, when it loads (one more row per retry if it fails with an HTTP error).
 - DB problems are reported to the page (`DB_STATUS`) and turn the list's title icon red.
 - Schema (created with `CREATE DATABASE/TABLE IF NOT EXISTS`, uncompressed):
   `api_snapshots(id, snapshot_utc DATETIME(3) UTC, endpoint, departing_terminal_id,

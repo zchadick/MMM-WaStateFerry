@@ -14,7 +14,9 @@ function parseWsdotDate(dateStr) {
   return new Date(dateStr);
 }
 
-function buildSailings({ scheduleData, vesselsData, spaceData, departingTerminalID, arrivingTerminalID, maxSailings, now, delays, sailingMemory }) {
+// `expected` (optional): the timetable's sailings for today ({ scheduledMs, vesselID, vesselName }, see
+// sailings/timetable.js); any missing from the schedule were removed by WSF and count as cancelled
+function buildSailings({ scheduleData, vesselsData, spaceData, departingTerminalID, arrivingTerminalID, maxSailings, now, delays, sailingMemory, expected = null }) {
   let departingTerminalName = "";
   let arrivingTerminalName = "";
   let sailings = [];
@@ -41,6 +43,17 @@ function buildSailings({ scheduleData, vesselsData, spaceData, departingTerminal
   delays.newDayCheck(sailings.length > 0 ? Math.min(...sailings.map(s => s.depDate.getTime())) : null, now);
   delays.observe(vesselsData, routeVesselIDs, sailings, parseWsdotDate);
 
+  // Timetable sailings WSF removed from today's schedule (how most cancellations appear). Matched on time
+  // only, since WSF swaps vessels; they come back as normal rows if WSF restores them.
+  if (Array.isArray(expected)) {
+    const scheduledTimes = new Set(sailings.map(s => s.depDate.getTime()));
+    for (const s of expected) {
+      if (!scheduledTimes.has(s.scheduledMs)) {
+        sailings.push({ depDate: new Date(s.scheduledMs), vesselID: s.vesselID, vesselName: s.vesselName, removed: true });
+      }
+    }
+  }
+
   // Step 3a: Record actual departures in sailingMemory. A vessel is running one of this route's
   // sailings when its VesselID and ScheduledDeparture both match the sailing (the vessel ID tells
   // apart same-time sailings from the other terminal). Also note vessels still at the dock for a sailing.
@@ -58,12 +71,16 @@ function buildSailings({ scheduleData, vesselsData, spaceData, departingTerminal
     for (const vessel of vesselsData) {
       if (!vessel.ScheduledDeparture) continue;
       const scheduledMs = parseWsdotDate(vessel.ScheduledDeparture).getTime();
-      const sailing = sailings.find(s => s.vesselID === vessel.VesselID && s.depDate.getTime() === scheduledMs);
+      // A removed sailing may be run by any vessel leaving this terminal at that time (WSF sometimes
+      // removes a sailing that still runs, e.g. very late or with a swapped vessel)
+      const sailing = sailings.find(s => s.depDate.getTime() === scheduledMs &&
+        (s.removed ? vessel.DepartingTerminalID === departingTerminalID : s.vesselID === vessel.VesselID));
       if (!sailing) continue;
       if (vessel.AtDock) {
         waitingAtDock.add(scheduledMs);
       } else if (vessel.LeftDock) {
-        rememberSailing(scheduledMs, { actualLeft: parseWsdotDate(vessel.LeftDock).getTime() });
+        rememberSailing(scheduledMs, { actualLeft: parseWsdotDate(vessel.LeftDock).getTime(),
+          ...(sailing.removed && { vesselName: vessel.VesselName || "" }) });
       }
     }
   }
@@ -94,15 +111,16 @@ function buildSailings({ scheduleData, vesselsData, spaceData, departingTerminal
 
   // Step 4: Rows with estimated departures (scheduled + the vessel's delay)
   const rows = sailings.map(sailing => {
-    const delayMs = delays.delayMs(sailing.vesselID);
+    const delayMs = sailing.removed ? 0 : delays.delayMs(sailing.vesselID);
     const scheduledMs = sailing.depDate.getTime();
     const estDepTimestamp = scheduledMs + delayMs;
 
     // Space feed only covers upcoming sailings; after that, the last count seen before the scheduled time
     const space = spaceByDeparture.get(scheduledMs);
     const memory = sailingMemory.get(sailingKey(scheduledMs)) || {};
-    const isCancelled = Boolean((space && space.isCancelled) || memory.cancelled);
     const actualLeft = memory.actualLeft ?? null;
+    // Cancelled: flagged by WSF, or removed from the schedule and no vessel left on it
+    const isCancelled = Boolean((space && space.isCancelled) || memory.cancelled || (sailing.removed && actualLeft === null));
 
     // Departed: a cancelled sailing once its scheduled time passes; otherwise the boat actually left.
     // Without real data (e.g. after a restart), use the estimate unless the boat is still at the dock for it.
@@ -119,7 +137,7 @@ function buildSailings({ scheduleData, vesselsData, spaceData, departingTerminal
     return {
       departingTimestamp: scheduledMs,
       estDeptTimestamp: estDepTimestamp,
-      vesselName: sailing.vesselName,
+      vesselName: (sailing.removed && memory.vesselName) || sailing.vesselName,
       delayMinutes: Math.round(delayMs / 60000),
       hasDeparted,
       driveUpSpaceCount: spaceInfo.driveUpSpaceCount ?? null,

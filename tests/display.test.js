@@ -97,8 +97,9 @@ test("a map page only accepts its own map replies and shows errors", () => {
   m.socketNotificationReceived("FERRY_SCHEDULE", { routeKey: "3-7", sailings: [] });
   assert.strictEqual(m.map.status, "loading", "sailing results are not used by the map yet");
 
-  m.socketNotificationReceived("MAP_READY", { identifier: "module_9_MMM-WaStateFerry", file: "0123456789abcdef.svg", width: 400, height: 338 });
-  assert.deepStrictEqual(m.map, { status: "ready", src: "modules/MMM-WaStateFerry/map_cache/0123456789abcdef.svg", width: 400, height: 338 });
+  const view = { west: -122.6143, north: 47.73803, east: -122.29558, south: 47.57325, k: 0.674, scale: 2032, width: 400, height: 307 };
+  m.socketNotificationReceived("MAP_READY", { identifier: "module_9_MMM-WaStateFerry", file: "0123456789abcdef.svg", width: 400, height: 307, view });
+  assert.deepStrictEqual(m.map, { status: "ready", src: "modules/MMM-WaStateFerry/map_cache/0123456789abcdef.svg", width: 400, height: 307, view });
 
   m.socketNotificationReceived("MAP_ERROR", { identifier: "module_9_MMM-WaStateFerry", errors: ["mapWidth must be a whole number"] });
   assert.deepStrictEqual(m.map, { status: "error", errors: ["mapWidth must be a whole number"] });
@@ -118,4 +119,10 @@ test("a map page merges nested defaults so partial settings keep the rest", () =
   assert.strictEqual(sent.payload.mapColors.land, "#222");
   assert.strictEqual(sent.payload.mapColors.water, definition.defaults.mapColors.water);
   assert.deepStrictEqual(sent.payload.mapLayers, { depth: true, contours: false, coastline: true });
+});
+
+test("map corners have no defaults (they must be set in config.js); mapWidth defaults to 400", () => {
+  assert.strictEqual(definition.defaults.mapUpperLeft, undefined);
+  assert.strictEqual(definition.defaults.mapLowerRight, undefined);
+  assert.strictEqual(definition.defaults.mapWidth, 400);
 });

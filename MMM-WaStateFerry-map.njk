@@ -10,6 +10,8 @@
   <div class="MMM-WaStateFerry-map{% if edgeFadePercent > 0 %} edge-fade{% endif %}"
        style="width: {{ map.width }}px; height: {{ map.height }}px; --map-edge-fade: {{ edgeFadePercent }}%;">
     <img src="{{ map.src }}" width="{{ map.width }}" height="{{ map.height }}" alt="">
+    <!-- Ferry and terminal markers; position updates replace only this overlay's content -->
+    <div class="MMM-WaStateFerry-map-markers">{{ markersHtml | safe }}</div>
   </div>
 {% else %}
   <div class="dimmed small">Loading map…</div>

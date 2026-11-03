@@ -23,12 +23,19 @@ const DETAIL_LEVELS = ["auto", "low", "medium", "high"];
 const DEPTH_LAYERS = ["depth_30ft", "depth_60ft", "depth_120ft", "depth_180ft", "depth_300ft", "depth_600ft"];
 const CACHE_KEEP = 5;
 
-// Colors are written into the SVG, so only allow plain CSS color syntax
+// Colors are written into the SVG and page, so only allow plain CSS color syntax
 const SAFE_COLOR = /^[#a-zA-Z0-9(),.%\s]+$/;
+const ICON_NAME = /^fa-[a-z0-9-]+$/;
+const MARKER_COLORS = ["otherBoat", "dockedBoat", "toDeparting", "toArriving", "departingTerminal", "arrivingTerminal", "otherTerminal"];
 
 const isNumber = value => typeof value === "number" && Number.isFinite(value);
 
 function validateCorner(corner, name, errors) {
+  // Missing settings can arrive as undefined or null (depending on how the page's message was serialized)
+  if (corner === undefined || corner === null) {
+    errors.push(`${name} is required: { lat, lon } in decimal degrees`);
+    return false;
+  }
   if (!corner || typeof corner !== "object" || !isNumber(corner.lat) || !isNumber(corner.lon)) {
     errors.push(`${name} must be { lat, lon } in decimal degrees`);
     return false;
@@ -74,6 +81,21 @@ function validateMapConfig(config) {
 
   if (!isNumber(config.mapEdgeFade) || config.mapEdgeFade < 0 || config.mapEdgeFade > 0.5) {
     errors.push("mapEdgeFade must be a number from 0 to 0.5");
+  }
+
+  // Ferry and terminal markers (drawn by the page over the map, not part of the SVG)
+  for (const name of ["mapMarkerSize", "mapLabelSize"]) {
+    if (!isNumber(config[name]) || config[name] < 4 || config[name] > 64) errors.push(`${name} must be a number of pixels from 4 to 64`);
+  }
+  const markerColors = config.mapMarkerColors || {};
+  for (const name of MARKER_COLORS) {
+    if (typeof markerColors[name] !== "string" || !SAFE_COLOR.test(markerColors[name])) errors.push(`mapMarkerColors.${name} must be a CSS color`);
+  }
+  const icons = config.mapIcons || {};
+  for (const name of ["underway", "docked", "terminal"]) {
+    if (typeof icons[name] !== "string" || !ICON_NAME.test(icons[name])) {
+      errors.push(`mapIcons.${name} must be a Font Awesome icon name like "fa-location-arrow"`);
+    }
   }
   return errors;
 }
@@ -200,6 +222,7 @@ module.exports = {
   MAX_ASPECT,
   MIN_ASPECT,
   DEPTH_LAYERS,
+  MARKER_COLORS,
   validateMapConfig,
   computeView,
   cacheKey,

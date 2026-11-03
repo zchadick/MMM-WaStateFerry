@@ -108,9 +108,19 @@ Source: the WSF `terminalbasics` API.
 ## Map view
 
 Add a second entry with `type: "map"` to show a map of Puget Sound, drawn from NOAA chart
-data: land, water, depth bands, contour lines, and the coastline. The map is drawn once and
-saved (in the module's `map_cache/` folder), so it's quick to show on later starts and costs the
-mirror almost nothing to display. It is rebuilt only when map settings change.
+data: land, water, depth bands, contour lines, and the coastline, with live ferry and terminal
+markers on top. The map itself is drawn once and saved (in the module's `map_cache/` folder), so
+it's quick to show on later starts and costs the mirror almost nothing to display. It is rebuilt
+only when map settings change; the markers update with each data refresh.
+
+**Markers:**
+- **Ferries** (in-service only) show as an arrow pointing in the direction of travel, or an
+  anchor when docked, with the vessel's abbreviation (e.g. `PUY` for Puyallup) below.
+  Colors: boats on your route heading to your departing terminal, heading to your arriving
+  terminal, or docked; other boats are drawn faintly.
+- **Terminals** show as a square with the terminal's name above, colored as your departing
+  terminal, your arriving terminal, or other.
+- Labels can overlap at busy terminals.
 
 ```js
 {
@@ -119,7 +129,7 @@ mirror almost nothing to display. It is rebuilt only when map settings change.
     config: {
         type: "map",
         mapUpperLeft: { lat: 47.73803, lon: -122.61430 },  // Kingston area
-        mapLowerRight: { lat: 47.57325, lon: -122.32455 }, // Seattle
+        mapLowerRight: { lat: 47.57325, lon: -122.29558 }, // Seattle and Lake Union
         mapWidth: 400
     }
 },
@@ -127,7 +137,8 @@ mirror almost nothing to display. It is rebuilt only when map settings change.
 
 - **The map needs a sailings entry.** Keep your regular `MMM-WaStateFerry` entry (with
   `apiKey` and the route); the map uses the same route and doesn't need them repeated. A map
-  without a sailings entry still draws, but a warning is logged.
+  without a sailings entry still draws, but without ferry or terminal markers, and a warning
+  is logged.
 - You can show **several maps** at once (for example a close-up and an overview).
 - Requires `npm install` in the module folder.
 
@@ -135,19 +146,24 @@ mirror almost nothing to display. It is rebuilt only when map settings change.
 
 | Option | Description | Default |
 |---|---|---|
-| `mapUpperLeft` | Upper-left (north-west) corner, `{ lat, lon }` in decimal degrees. | `{ lat: 47.73803, lon: -122.61430 }` |
-| `mapLowerRight` | Lower-right (south-east) corner. | `{ lat: 47.57325, lon: -122.32455 }` |
+| `mapUpperLeft` | **Required.** Upper-left (north-west) corner, `{ lat, lon }` in decimal degrees. | *(none)* |
+| `mapLowerRight` | **Required.** Lower-right (south-east) corner. | *(none)* |
 | `mapWidth` | Map width in pixels (1–2000). The height follows the area's shape. | `400` |
 | `mapDetail` | `"auto"`, `"low"`, `"medium"`, or `"high"`. `"auto"` picks from the map's scale. | `"auto"` |
 | `mapLayers` | `{ depth, contours, coastline }`, each `true` or `false`. | all `true` |
 | `mapColors` | `land`, `water`, `contour`, `coastline`, and `depth` (six colors, 30 ft to 600 ft). | dark grey land, blue water darkening with depth |
 | `mapLineWidths` | `{ coastline, contour }` in pixels. | `{ coastline: 1, contour: 0.5 }` |
-| `mapEdgeFade` | Share of each side that fades to black (`0` to `0.5`; `0` turns it off). | `0.06` |
+| `mapEdgeFade` | Share of each side that fades to black (`0` to `0.5`; `0` turns it off). | `0.04` |
+| `mapMarkerSize` | Ferry and terminal icon size in pixels (4–64). Adjust to suit your screen. | `14` |
+| `mapLabelSize` | Label text size in pixels (4–64). | `11` |
+| `mapMarkerColors` | `otherBoat`, `dockedBoat`, `toDeparting`, `toArriving`, `departingTerminal`, `arrivingTerminal`, `otherTerminal`. | muted greys, blue, and sand |
+| `mapIcons` | Font Awesome icon names: `underway`, `docked`, `terminal`. | `fa-location-arrow`, `fa-anchor`, `fa-square` |
 
-You only need to list the colors, layers, or line widths you want to change; the rest keep
-their defaults. Coordinates must be decimal degrees (to convert degrees-minutes-seconds:
+You only need to list the colors, icons, layers, or line widths you want to change; the rest
+keep their defaults. Coordinates must be decimal degrees (to convert degrees-minutes-seconds:
 degrees + minutes/60 + seconds/3600, negative for west longitudes and south latitudes).
-Invalid map settings are listed on the mirror in place of the map.
+`mapUpperLeft` and `mapLowerRight` have no defaults; if either is missing, or any map setting is
+invalid, the problems are listed on the mirror in place of the map.
 
 **Map shape:** the width is fixed by `mapWidth` and the height follows the area you choose.
 Very wide or very tall areas are limited to between 5:1 and 1:5; the upper-left corner is kept

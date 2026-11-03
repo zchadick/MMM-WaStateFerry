@@ -27,6 +27,11 @@ const config = (overrides = {}) => ({
   },
   mapLineWidths: { coastline: 1, contour: 0.5 },
   mapEdgeFade: 0.06,
+  mapMarkerSize: 14,
+  mapLabelSize: 11,
+  mapMarkerColors: { otherBoat: "#3d3d3d", dockedBoat: "#9a9a9a", toDeparting: "#7fa7c9", toArriving: "#d8c8a0",
+    departingTerminal: "#7fa7c9", arrivingTerminal: "#d8c8a0", otherTerminal: "#666" },
+  mapIcons: { underway: "fa-location-arrow", docked: "fa-anchor", terminal: "fa-square" },
   ...overrides
 });
 
@@ -59,6 +64,9 @@ test("valid default settings pass validation", () => {
 
 test("validation catches bad corners, width, detail, layers, colors, line widths, and fade", () => {
   const cases = [
+    [{ mapUpperLeft: undefined }, /mapUpperLeft is required/],
+    [{ mapLowerRight: undefined }, /mapLowerRight is required/],
+    [{ mapUpperLeft: null }, /mapUpperLeft is required/],
     [{ mapUpperLeft: { lat: "47.7", lon: -122.6 } }, /mapUpperLeft must be \{ lat, lon \}/],
     [{ mapUpperLeft: { lat: 95, lon: -122.6 } }, /mapUpperLeft.lat must be between -90 and 90/],
     [{ mapLowerRight: { lat: 47.5, lon: -190 } }, /mapLowerRight.lon must be between -180 and 180/],
@@ -72,7 +80,11 @@ test("validation catches bad corners, width, detail, layers, colors, line widths
     [{ mapColors: { ...config().mapColors, water: "red\"/><script>" } }, /mapColors.water must be a CSS color/],
     [{ mapColors: { ...config().mapColors, depth: ["#000"] } }, /mapColors.depth must be a list of 6/],
     [{ mapLineWidths: { coastline: -1, contour: 0.5 } }, /mapLineWidths.coastline must be a number/],
-    [{ mapEdgeFade: 0.8 }, /mapEdgeFade must be a number from 0 to 0.5/]
+    [{ mapEdgeFade: 0.8 }, /mapEdgeFade must be a number from 0 to 0.5/],
+    [{ mapMarkerSize: 2 }, /mapMarkerSize must be a number of pixels from 4 to 64/],
+    [{ mapLabelSize: "big" }, /mapLabelSize must be a number of pixels from 4 to 64/],
+    [{ mapMarkerColors: { ...config().mapMarkerColors, toArriving: "red;}</style>" } }, /mapMarkerColors.toArriving must be a CSS color/],
+    [{ mapIcons: { ...config().mapIcons, underway: "ship\" onerror=\"x" } }, /mapIcons.underway must be a Font Awesome icon name/]
   ];
   for (const [overrides, expected] of cases) {
     const errors = validateMapConfig(config(overrides));

@@ -141,3 +141,39 @@
     padding-left: 16px;
     text-align: left;
 }
+
+/* Map markers: an overlay the size of the map; each marker is centred on its position */
+.MMM-WaStateFerry-map-markers {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+.MMM-WaStateFerry-map-markers .map-marker {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    line-height: 1;
+}
+
+.MMM-WaStateFerry-map-markers .map-marker i {
+    display: block;
+}
+
+/* Labels: terminal names above the marker, vessel abbreviations below */
+.MMM-WaStateFerry-map-markers .map-label {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    line-height: 1.1;
+}
+
+.MMM-WaStateFerry-map-markers .map-label.above {
+    bottom: 100%;
+    margin-bottom: 2px;
+}
+
+.MMM-WaStateFerry-map-markers .map-label.below {
+    top: 100%;
+    margin-top: 2px;
+}

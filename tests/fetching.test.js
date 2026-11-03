@@ -24,7 +24,9 @@ const BODIES = {
   scheduletoday: { TerminalCombos: [{ DepartingTerminalName: "Bainbridge Island", ArrivingTerminalName: "Seattle",
     Times: [{ DepartingTime: `/Date(${START + 60 * MINUTE}-0700)/`, ArrivingTime: null, VesselID: 25, VesselName: "Puyallup" }] }] },
   vessellocations: [],
-  terminalsailingspace: { DepartingSpaces: [] }
+  terminalsailingspace: { DepartingSpaces: [] },
+  vesselbasics: [],
+  terminallocations: []
 };
 
 // The helper under test, stopped after each test (even a failing one) so no real timer outlives the mock clock
@@ -175,12 +177,20 @@ const mapSettings = (overrides = {}) => ({
   mapWidth: 400, mapDetail: "auto", mapLayers: { depth: true, contours: true, coastline: true },
   mapColors: { land: "#3a3a3a", water: "#1f3a52", depth: ["#1a3247", "#162b3d", "#122433", "#0e1d2a", "#0a1620", "#060f17"],
     contour: "rgba(0,0,0,0.25)", coastline: "#626e78" },
-  mapLineWidths: { coastline: 1, contour: 0.5 }, mapEdgeFade: 0.06, ...overrides
+  mapLineWidths: { coastline: 1, contour: 0.5 }, mapEdgeFade: 0.06,
+  mapMarkerSize: 14,
+  mapLabelSize: 11,
+  mapMarkerColors: { otherBoat: "#3d3d3d", dockedBoat: "#9a9a9a", toDeparting: "#7fa7c9", toArriving: "#d8c8a0",
+    departingTerminal: "#7fa7c9", arrivingTerminal: "#d8c8a0", otherTerminal: "#666" },
+  mapIcons: { underway: "fa-location-arrow", docked: "fa-anchor", terminal: "fa-square" },
+  ...overrides
 });
+
+const VIEW = { west: -122.6143, north: 47.73803, east: -122.29558, south: 47.57325, k: 0.674, scale: 2032, width: 400, height: 307 };
 
 // Stand-in builder so these tests don't build real maps
 const stubBuilder = helper => {
-  helper.mapBuilder = { getOrBuildMap: async () => ({ file: "0123456789abcdef.svg", view: { width: 400, height: 338 } }) };
+  helper.mapBuilder = { getOrBuildMap: async () => ({ file: "0123456789abcdef.svg", view: VIEW }) };
 };
 
 test("a map registration doesn't start fetching and gets its own MAP_READY", async () => {
@@ -193,7 +203,7 @@ test("a map registration doesn't start fetching and gets its own MAP_READY", asy
   assert.strictEqual(helper.fetchCycles, 0, "no fetch from a map");
   assert.strictEqual(helper.routeKey, null, "the map doesn't set the route");
   assert.deepStrictEqual(helper.sent, [{ notification: "MAP_READY",
-    payload: { identifier: "module_9_MMM-WaStateFerry", file: "0123456789abcdef.svg", width: 400, height: 338 } }]);
+    payload: { identifier: "module_9_MMM-WaStateFerry", file: "0123456789abcdef.svg", width: 400, height: 307, view: VIEW } }]);
 });
 
 test("invalid map settings get MAP_ERROR with the messages", async () => {

@@ -3,6 +3,8 @@ const NodeHelper = require("node_helper");
 const Log = require("logger");
 const { createDbWriter } = require("./predictive_helpers/dbWriter");
 const { validateMapConfig, createMapBuilder } = require("./map/mapBuilder");
+const { createReferenceData } = require("./map/referenceData");
+const { buildVesselPositions } = require("./map/vesselPositions");
 
 // A map needs a sailings entry to drive the fetch cycle; warn once if none registers within this time
 const MAP_ONLY_WARNING_MS = 60 * 1000;
@@ -33,11 +35,17 @@ module.exports = NodeHelper.create({
     this.mapBuilder = null;
     this.sailingsRegistered = false;
     this.mapWarningTimer = null;
+    // Map markers: reference data (abbreviations, terminals), the latest vessel feed, and whether any map is shown
+    this.reference = null;
+    this.latestVesselFeed = null;
+    this.latestPositions = null;
+    this.mapRegistered = false;
   },
 
   stop() {
     clearTimeout(this.refreshTimer);
     clearTimeout(this.mapWarningTimer);
+    if (this.reference) this.reference.stop();
   },
 
   socketNotificationReceived(notification, payload) {
@@ -58,6 +66,7 @@ module.exports = NodeHelper.create({
     if (!this.settings) {
       this.settings = settings;
       this.routeKey = routeKey;
+      this.getReference().start(settings.apiKey);
       this.refresh("startup");
       return;
     }
@@ -88,9 +97,13 @@ module.exports = NodeHelper.create({
       return Promise.resolve();
     }
 
+    this.mapRegistered = true;
     return this.getMapBuilder().getOrBuildMap(settings)
       .then(({ file, view }) => {
-        this.sendSocketNotification("MAP_READY", { identifier, file, width: view.width, height: view.height });
+        // The view lets the page place markers with the same projection the SVG was drawn with
+        const { west, north, east, south, k, scale, width, height } = view;
+        this.sendSocketNotification("MAP_READY", { identifier, file, width, height, view: { west, north, east, south, k, scale, width, height } });
+        if (this.latestPositions) this.sendSocketNotification("MAP_POSITIONS", this.latestPositions);
       })
       .catch(error => {
         Log.error(`[MMM-WaStateFerry] Map could not be built (${identifier}): ${error.message}`);
@@ -107,6 +120,27 @@ module.exports = NodeHelper.create({
       });
     }
     return this.mapBuilder;
+  },
+
+  getReference() {
+    if (!this.reference) {
+      this.reference = createReferenceData({ Log, onUpdate: () => this.publishPositions() });
+    }
+    return this.reference;
+  },
+
+  // Called by fetchSchedule() after each successful fetch: keep the vessel feed for the map markers
+  recordVesselFeed(vessels, routeVesselIDs, departingTerminalID, arrivingTerminalID) {
+    this.latestVesselFeed = { vessels, routeVesselIDs, departingTerminalID, arrivingTerminalID };
+    this.publishPositions();
+  },
+
+  // Send marker data to map pages (only once a map is shown; also re-sent when reference data arrives)
+  publishPositions() {
+    if (!this.latestVesselFeed) return;
+    const reference = this.reference ? this.reference.get() : { abbrevById: {}, terminals: [] };
+    this.latestPositions = buildVesselPositions({ ...this.latestVesselFeed, reference });
+    if (this.mapRegistered) this.sendSocketNotification("MAP_POSITIONS", this.latestPositions);
   },
 
   // Pages register in any order, so only warn if no sailings entry has registered a while after a map did
@@ -256,6 +290,9 @@ module.exports = NodeHelper.create({
       
       // Step 2: Extract unique vessel IDs relevant to this route's schedule
       const routeVesselIDs = new Set(sailings.map(s => s.vesselID).filter(Boolean));
+
+      // Map view: hand the vessel feed to the helper for ferry markers
+      this.recordVesselFeed(vesselsData, routeVesselIDs, departingTerminalID, arrivingTerminalID);
 
       // Step 3: Get current vessel info, calculate delay if atDock=false, otherwise use cache
       if (Array.isArray(vesselsData)) {

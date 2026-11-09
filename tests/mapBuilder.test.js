@@ -29,7 +29,7 @@ const config = (overrides = {}) => ({
   mapEdgeFade: 0.06,
   mapMarkerSize: 14,
   mapLabelSize: 11,
-  mapMarkerColors: { otherBoat: "#3d3d3d", dockedBoat: "#9a9a9a", toDeparting: "#7fa7c9", toArriving: "#d8c8a0",
+  mapMarkerColors: { otherBoat: "#3d3d3d", dockedBoat: "#000000", dockedBoatLabel: "#9a9a9a", toDeparting: "#7fa7c9", toArriving: "#d8c8a0",
     departingTerminal: "#7fa7c9", arrivingTerminal: "#d8c8a0", otherTerminal: "#666" },
   mapIcons: { underway: "fa-location-arrow", docked: "fa-anchor", terminal: "fa-square" },
   ...overrides

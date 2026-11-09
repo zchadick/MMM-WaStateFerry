@@ -165,7 +165,7 @@ only when map settings change; the markers update with each data refresh.
 | `mapEdgeFade` | Share of each side that fades to black (`0` to `0.5`; `0` turns it off). | `0.04` |
 | `mapMarkerSize` | Ferry and terminal icon size in pixels (4–64). Adjust to suit your screen. | `14` |
 | `mapLabelSize` | Label text size in pixels (4–64). | `11` |
-| `mapMarkerColors` | `otherBoat`, `dockedBoat`, `toDeparting`, `toArriving`, `departingTerminal`, `arrivingTerminal`, `otherTerminal`. | muted greys, blue, and sand |
+| `mapMarkerColors` | `otherBoat`, `dockedBoat`, `dockedBoatLabel`, `toDeparting`, `toArriving`, `departingTerminal`, `arrivingTerminal`, `otherTerminal`. A docked boat's anchor (`dockedBoat`) is black, so it marks its terminal's square as "boat docked"; its abbreviation (`dockedBoatLabel`) stays light grey. | black, muted greys, blue, and sand |
 | `mapIcons` | Font Awesome icon names: `underway`, `docked`, `terminal`. | `fa-location-arrow`, `fa-anchor`, `fa-square` |
 
 You only need to list the colors, icons, layers, or line widths you want to change; the rest

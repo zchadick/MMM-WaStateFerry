@@ -261,7 +261,7 @@ merged by the module, so partial settings keep the rest):
 - `mapDetail` (`auto` picks low/medium/high from metres per pixel), `mapLayers` (depth,
   contours, coastline), `mapColors`, `mapLineWidths`, `mapEdgeFade` (default 0.04 per side).
 - Markers: `mapMarkerSize` (14), `mapLabelSize` (11), `mapMarkerColors` (`otherBoat`,
-  `dockedBoat`, `toDeparting`, `toArriving`, `departingTerminal`, `arrivingTerminal`,
+  `dockedBoat`, `dockedBoatLabel`, `toDeparting`, `toArriving`, `departingTerminal`, `arrivingTerminal`,
   `otherTerminal`), `mapIcons` (`underway`, `docked`, `terminal`: Font Awesome names).
 
 **Map image (Pi-friendly):** the helper builds the map **once as an SVG file**, in a
@@ -281,8 +281,9 @@ newest 5 are kept. Colors are baked into the SVG (an `<img>` SVG can't use page 
 **Markers** (drawn by the page in an overlay over the image; only the overlay's HTML changes
 on updates, never the image; markers outside the map are skipped; names are HTML-escaped):
 - **Vessels:** in-service only, colored by state: other boats (faint `#3d3d3d`); route boats
-  at dock (`#9a9a9a`), heading to the departing terminal (`#7fa7c9`), or heading to the
-  arriving terminal (`#d8c8a0`). Underway: `fa-location-arrow` rotated to the heading (the
+  at dock (black `#000000` anchor, so it reads as a mark on its terminal's square; its label
+  keeps a light `dockedBoatLabel` color, `#9a9a9a`, to stay readable on water), heading to the
+  departing terminal (`#7fa7c9`), or heading to the arriving terminal (`#d8c8a0`). Underway: `fa-location-arrow` rotated to the heading (the
   icon points north-east, so rotate by heading − 45°); at dock: `fa-anchor`, not rotated.
   The vessel **abbreviation** goes **below** the icon.
 - **Terminals:** `fa-square`, colored as departing (`#7fa7c9`), arriving (`#d8c8a0`), or

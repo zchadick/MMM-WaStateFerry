@@ -136,7 +136,7 @@ const mapSettings = {
   mapLayers: { depth: true, contours: true, coastline: true },
   mapColors: { land: "#3a3a3a", water: "#1f3a52", depth: ["#1a3247", "#162b3d", "#122433", "#0e1d2a", "#0a1620", "#060f17"], contour: "rgba(0,0,0,0.25)", coastline: "#626e78" },
   mapLineWidths: { coastline: 1, contour: 0.5 }, mapEdgeFade: 0.06, mapMarkerSize: 14, mapLabelSize: 11,
-  mapMarkerColors: { otherBoat: "#3d3d3d", dockedBoat: "#9a9a9a", toDeparting: "#7fa7c9", toArriving: "#d8c8a0", departingTerminal: "#7fa7c9", arrivingTerminal: "#d8c8a0", otherTerminal: "#666" },
+  mapMarkerColors: { otherBoat: "#3d3d3d", dockedBoat: "#000000", dockedBoatLabel: "#9a9a9a", toDeparting: "#7fa7c9", toArriving: "#d8c8a0", departingTerminal: "#7fa7c9", arrivingTerminal: "#d8c8a0", otherTerminal: "#666" },
   mapIcons: { underway: "fa-location-arrow", docked: "fa-anchor", terminal: "fa-square" }
 };
 const names = helper => helper.sent.map(m => m.notification);
@@ -204,9 +204,19 @@ test("page: docked boats use the docked icon without rotation; colors follow the
     { id: 25, label: "PUY", lat: 47.65, lon: -122.45, heading: 10, state: "toDeparting" }
   ] };
   const html = m.markersHtml();
-  assert.match(html, /color: #9a9a9a;[^>]*><i class="fa-solid fa-anchor"><\/i>/);
+  assert.match(html, /color: #000000;[^>]*><i class="fa-solid fa-anchor"><\/i>/, "dark anchor by default");
+  assert.match(html, /map-label below" style="font-size: 11px; color: #9a9a9a;">WEN</, "its label stays light");
   assert.match(html, /color: #3d3d3d/);
   assert.match(html, /color: #7fa7c9/);
+  assert.match(html, /map-label below" style="font-size: 11px;">PUY</, "underway labels take the icon's color");
+});
+
+test("page: the docked colors can be set separately for the icon and the label", () => {
+  const m = mapPage({ mapMarkerColors: { dockedBoat: "#222", dockedBoatLabel: "#ccc" } });
+  m.positions = { terminals: [], vessels: [{ id: 37, label: "WEN", lat: 47.65, lon: -122.45, heading: 300, state: "docked" }] };
+  const html = m.markersHtml();
+  assert.match(html, /color: #222;[^>]*><i class="fa-solid fa-anchor">/);
+  assert.match(html, /color: #ccc;">WEN</);
 });
 
 test("page: terminals show a square with the name above; names are escaped", () => {

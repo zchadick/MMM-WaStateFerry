@@ -26,7 +26,7 @@ const CACHE_KEEP = 5;
 // Colors are written into the SVG and page, so only allow plain CSS color syntax
 const SAFE_COLOR = /^[#a-zA-Z0-9(),.%\s]+$/;
 const ICON_NAME = /^fa-[a-z0-9-]+$/;
-const MARKER_COLORS = ["otherBoat", "dockedBoat", "toDeparting", "toArriving", "departingTerminal", "arrivingTerminal", "otherTerminal"];
+const MARKER_COLORS = ["otherBoat", "dockedBoat", "dockedBoatLabel", "toDeparting", "toArriving", "departingTerminal", "arrivingTerminal", "otherTerminal"];
 
 const isNumber = value => typeof value === "number" && Number.isFinite(value);
 

@@ -178,7 +178,15 @@ Module.register("MMM-WaStateFerry", {
                 const icon = document.querySelector(`#${this.identifier} .ferry-icon`);
                 if (icon) icon.classList.add("pulsing");
             }
-        } else if (notification === "FERRY_SCHEDULE") {
+        }
+
+        // Every result also carries the current DB status, so a missed DB_STATUS (e.g. after the page's
+        // connection dropped) corrects itself at the next refresh; applied when the result renders
+        if ((notification === "FERRY_SCHEDULE" || notification === "FERRY_ERROR") && typeof payload.dbProblem === "boolean") {
+            this.dbProblem = payload.dbProblem;
+        }
+
+        if (notification === "FERRY_SCHEDULE") {
             this.sailings = payload.sailings;
             this.departingTerminalName = payload.departingTerminalName;
             this.arrivingTerminalName = payload.arrivingTerminalName;

@@ -183,6 +183,20 @@ test("DB_STATUS turns the title icon red and back, without re-rendering", () => 
   delete global.document;
 });
 
+test("each result carries the DB status, so a missed DB_STATUS corrects itself at the next refresh", () => {
+  const m = moduleWithConfig();
+  m.routeKey = "3-7"; m.pulseUntil = 0; m.sailings = []; m.loaded = true; m.error = null;
+  m.updateDom = () => {};
+  const result = { routeKey: "3-7", sailings: [], departingTerminalName: "A", arrivingTerminalName: "B", lastUpdatedTimestamp: 1 };
+  m.dbProblem = true; // red, and the "cleared" DB_STATUS never arrived
+  m.socketNotificationReceived("FERRY_SCHEDULE", { ...result, dbProblem: false });
+  assert.strictEqual(m.getTemplateData().dbProblem, false, "cleared by the next result");
+  m.socketNotificationReceived("FERRY_ERROR", { routeKey: "3-7", message: "HTTP 500", dbProblem: true });
+  assert.strictEqual(m.dbProblem, true, "update errors carry it too");
+  m.socketNotificationReceived("FERRY_SCHEDULE", result);
+  assert.strictEqual(m.dbProblem, true, "a result without the field leaves the status as is");
+});
+
 // Render the real template with MagicMirror's own Nunjucks (skipped if it isn't installed beside this module)
 const nunjucks = (() => {
   try { return require(path.resolve(__dirname, "../../../node_modules/nunjucks")); } catch { return null; }

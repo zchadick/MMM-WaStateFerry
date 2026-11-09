@@ -317,7 +317,10 @@ data; parsing, dedup, analysis, and prediction happen in post-processing on the 
 - Each fetch writes three rows (one per response, same `snapshot_utc`), including HTTP
   errors. Duplicates are fine. The route's timetable (`sailings`) is written once per service
   day, when it loads (one more row per retry if it fails with an HTTP error).
-- DB problems are reported to the page (`DB_STATUS`) and turn the list's title icon red.
+- DB problems are reported to the page (`DB_STATUS`, sent when the status changes) and turn the
+  list's title icon red. Every `FERRY_SCHEDULE` / `FERRY_ERROR` (including replays to pages that
+  register later) also carries the current `dbProblem`, so a page that missed a `DB_STATUS`
+  (e.g. its connection dropped while the Pi was out of memory) corrects itself at the next refresh.
 - Schema (created with `CREATE DATABASE/TABLE IF NOT EXISTS`, uncompressed):
   `api_snapshots(id, snapshot_utc DATETIME(3) UTC, endpoint, departing_terminal_id,
   arriving_terminal_id, http_status, body LONGTEXT)`. `endpoint` uses the API's names.

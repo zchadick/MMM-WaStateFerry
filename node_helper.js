@@ -8,6 +8,7 @@ const { buildVesselPositions } = require("./map/vesselPositions");
 const { buildSailings, parseWsdotDate } = require("./sailings/buildSailings");
 const { createDelayTracker } = require("./sailings/delays");
 const { createTimetable } = require("./sailings/timetable");
+const { createGpio, validateGpioConfig } = require("./gpio/gpioController");
 
 // A map needs a sailings entry to drive the fetch cycle; warn once if none registers within this time
 const MAP_ONLY_WARNING_MS = 60 * 1000;
@@ -40,7 +41,7 @@ module.exports = NodeHelper.create({
     this.latestResult = null;
     this.refreshTimer = null;
     this.inFlight = null;
-    this.lastRefreshAt = 0;
+    this.lastManualAt = -Infinity; // last refresh started by a button (for its cooldown)
     this.warnedRoutes = new Set();
     // Map view: built lazily; a map never sets the route or starts fetching
     this.mapBuilder = null;
@@ -56,6 +57,11 @@ module.exports = NodeHelper.create({
     this.dbProblem = false;
     dbStatusListener = problem => this.setDbProblem(problem);
     this.timetable = null;
+    // Optional GPIO LEDs and buttons (gpio/gpioController.js), and the active problems STATUS shows:
+    // the latest refresh, the sailing-space feed, the timetable, the DB, and any map that failed
+    this.gpio = null;
+    this.problems = null;
+    this.mapProblems = new Set();
   },
 
   stop() {
@@ -63,6 +69,7 @@ module.exports = NodeHelper.create({
     clearTimeout(this.departureTimer);
     clearTimeout(this.mapWarningTimer);
     if (this.reference) this.reference.stop();
+    if (this.gpio) this.gpio.stop(); // both LEDs off
   },
 
   socketNotificationReceived(notification, payload) {
@@ -84,6 +91,7 @@ module.exports = NodeHelper.create({
       this.settings = settings;
       this.routeKey = routeKey;
       this.getReference().start(settings.apiKey);
+      this.startGpio(settings);
       this.refresh("startup");
       return;
     }
@@ -104,6 +112,39 @@ module.exports = NodeHelper.create({
   setDbProblem(problem) {
     this.dbProblem = problem;
     this.sendSocketNotification("DB_STATUS", { problem, routeKey: this.routeKey });
+    this.setProblem("db", problem);
+  },
+
+  // GPIO LEDs and buttons, only if any GPIO setting is in config.js (sailings entry)
+  startGpio(settings) {
+    const { pins, errors } = validateGpioConfig(settings);
+    if (errors.length > 0) Log.warn(`[MMM-WaStateFerry] GPIO turned off, invalid settings: ${errors.join("; ")}`);
+    if (!pins) return;
+    this.gpio = createGpio({ Log, pins, onPress: () => this.refresh("manual") });
+    this.gpio.start();
+    this.updateGpioStatus();
+  },
+
+  getProblems() {
+    if (!this.problems) this.problems = { refresh: false, space: false, timetable: false, db: false };
+    return this.problems;
+  },
+
+  setProblem(name, active) {
+    this.getProblems()[name] = active;
+    this.updateGpioStatus();
+  },
+
+  // STATUS LED: off until the first result, then a slow pulse, or a fast pulse while any problem is active
+  updateGpioStatus() {
+    if (!this.gpio) return;
+    const problem = Object.values(this.getProblems()).some(Boolean) || this.mapProblems.size > 0;
+    this.gpio.setStatus(!this.latestResult ? "off" : problem ? "error" : "ok");
+  },
+
+  setMapProblem(identifier, active) {
+    if (active) this.mapProblems.add(identifier); else this.mapProblems.delete(identifier);
+    this.updateGpioStatus();
   },
 
   // Map pages register once with their merged map settings and get back their own map
@@ -116,6 +157,7 @@ module.exports = NodeHelper.create({
     if (errors.length > 0) {
       Log.warn(`[MMM-WaStateFerry] Invalid map settings (${identifier}): ${errors.join("; ")}`);
       this.sendSocketNotification("MAP_ERROR", { identifier, errors });
+      this.setMapProblem(identifier, true);
       return Promise.resolve();
     }
 
@@ -125,11 +167,13 @@ module.exports = NodeHelper.create({
         // The view lets the page place markers with the same projection the SVG was drawn with
         const { west, north, east, south, k, scale, width, height } = view;
         this.sendSocketNotification("MAP_READY", { identifier, file, width, height, view: { west, north, east, south, k, scale, width, height } });
+        this.setMapProblem(identifier, false);
         if (this.latestPositions) this.sendSocketNotification("MAP_POSITIONS", this.latestPositions);
       })
       .catch(error => {
         Log.error(`[MMM-WaStateFerry] Map could not be built (${identifier}): ${error.message}`);
         this.sendSocketNotification("MAP_ERROR", { identifier, errors: [`Map could not be built: ${error.message}`] });
+        this.setMapProblem(identifier, true);
       });
   },
 
@@ -191,21 +235,25 @@ module.exports = NodeHelper.create({
     // Overlapping triggers join the fetch in progress
     if (this.inFlight) return this.inFlight;
 
-    // Manual triggers inside the cooldown don't fetch, but still pulse the icon so the press registers
-    if (trigger === "manual" && Date.now() - this.lastRefreshAt < this.settings.manualRefreshCooldown) {
-      this.sendSocketNotification("FETCH_STARTED", { routeKey: this.routeKey });
-      if (this.latestResult) this.sendLatestResult();
-      return Promise.resolve();
+    // Button presses within the cooldown of the last button refresh are ignored (timer and
+    // pre-departure refreshes don't count toward it, so a press can always pull the latest data)
+    if (trigger === "manual") {
+      if (Date.now() - this.lastManualAt < this.settings.manualRefreshCooldown) {
+        Log.debug("[MMM-WaStateFerry] Refresh button ignored (cooldown)");
+        return Promise.resolve();
+      }
+      this.lastManualAt = Date.now();
     }
 
     clearTimeout(this.refreshTimer);
     this.sendSocketNotification("FETCH_STARTED", { routeKey: this.routeKey });
+    if (this.gpio) this.gpio.refreshStarted();
 
     // Timer settings stay with the helper; the rest are fetch settings (route, API key, DB keys if present)
-    const { updateInterval, manualRefreshCooldown, ...fetchSettings } = this.settings;
+    const { updateInterval, manualRefreshCooldown, gpioStatusLed, gpioRefreshLed, gpioButtons, ...fetchSettings } = this.settings;
     this.inFlight = this.fetchSchedule(fetchSettings).finally(() => {
       this.inFlight = null;
-      this.lastRefreshAt = Date.now();
+      if (this.gpio) this.gpio.refreshFinished();
       // The countdown restarts after every refresh, whatever triggered it
       this.refreshTimer = setTimeout(() => this.refresh("timer"), updateInterval);
     });
@@ -216,6 +264,7 @@ module.exports = NodeHelper.create({
   sendResult(notification, payload, routeKey) {
     this.latestResult = { notification, payload: { ...payload, routeKey } };
     this.sendLatestResult();
+    this.setProblem("refresh", notification === "FERRY_ERROR");
   },
 
   // The latest result with the DB status as of now (also on replays, so a page never gets a stale status)
@@ -285,6 +334,7 @@ module.exports = NodeHelper.create({
       } catch (spaceError) {
         Log.warn(`[MMM-WaStateFerry] ${spaceError.message}`);
       }
+      this.getProblems().space = spaceData === null; // shown by the STATUS LED with this refresh's result
 
       // Today's timetable sailings (loaded on the first fetch of each service day; its response is logged
       // to the DB then). Null if unavailable: only WSF's cancelled flag marks cancellations.
@@ -297,6 +347,7 @@ module.exports = NodeHelper.create({
           { snapshotTime: new Date(), endpoint: "sailings", departingTerminalID, arrivingTerminalID, httpStatus, body }
         ])
       });
+      this.getProblems().timetable = this.getTimetable().isFailing(); // shown with this refresh's result
 
       // Rows for the display (see sailings/buildSailings.js); all times are UTC timestamps
       const built = buildSailings({

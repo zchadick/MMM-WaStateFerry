@@ -118,31 +118,43 @@ test("overlapping triggers produce one fetch", async () => {
   assert.strictEqual(helper.fetchCycles, 1);
 });
 
-test("manual refresh within the cooldown pulses but doesn't fetch; after it, fetches", async () => {
+test("a button press always fetches, even right after a timer or startup refresh", async () => {
   const helper = setup();
   helper.register(settings());
   await settle(helper);
   await advance(helper, 10 * 1000);
+  await helper.refresh("manual");
+  assert.strictEqual(helper.fetchCycles, 2, "the cooldown counts only button refreshes");
+});
+
+test("presses within the cooldown of the last button refresh are ignored; after it, they fetch", async () => {
+  const helper = setup();
+  helper.register(settings());
+  await settle(helper);
+  await helper.refresh("manual");
+  assert.strictEqual(helper.fetchCycles, 2);
+  await advance(helper, 10 * 1000);
   helper.sent.length = 0;
   await helper.refresh("manual");
-  assert.strictEqual(helper.fetchCycles, 1, "no fetch inside the cooldown");
-  assert.deepStrictEqual(sentNames(helper), ["FETCH_STARTED", "FERRY_SCHEDULE"], "pulse, then the latest result");
+  assert.strictEqual(helper.fetchCycles, 2, "no fetch inside the cooldown");
+  assert.deepStrictEqual(sentNames(helper), [], "ignored: nothing sent to the page");
 
   await advance(helper, 20 * 1000);
   await helper.refresh("manual");
-  assert.strictEqual(helper.fetchCycles, 2, "fetches once the cooldown has passed");
+  assert.strictEqual(helper.fetchCycles, 3, "fetches once the cooldown has passed");
 });
 
 test("a custom manualRefreshCooldown is respected", async () => {
   const helper = setup();
   helper.register(settings({ manualRefreshCooldown: 2 * MINUTE }));
   await settle(helper);
+  await helper.refresh("manual");
   await advance(helper, 90 * 1000);
   await helper.refresh("manual");
-  assert.strictEqual(helper.fetchCycles, 1, "still inside a 2-minute cooldown");
+  assert.strictEqual(helper.fetchCycles, 2, "still inside a 2-minute cooldown");
   await advance(helper, 30 * 1000);
   await helper.refresh("manual");
-  assert.strictEqual(helper.fetchCycles, 2);
+  assert.strictEqual(helper.fetchCycles, 3);
 });
 
 test("a second REGISTER for the same route reuses the cycle and gets the latest result", async () => {

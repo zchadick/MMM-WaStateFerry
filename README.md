@@ -71,7 +71,8 @@ Add the module to the `modules` array in `config/config.js`:
 | `animationSpeed` | Fade-in speed on first load, in milliseconds. | `1000` |
 | `fade` | Fade rows toward the bottom of the list. | `true` |
 | `fadePoint` | Where the fade starts, as a fraction of the list (0–1). | `0.25` |
-| `manualRefreshCooldown` | Minimum time between manual refreshes (reserved for upcoming hardware-button support), in milliseconds. | `30000` |
+| `manualRefreshCooldown` | Minimum time between refreshes from the [GPIO buttons](#optional-gpio-leds-and-buttons-raspberry-pi), in milliseconds. Presses sooner than this after the last button refresh are ignored. | `30000` |
+| `gpioStatusLed`, `gpioRefreshLed`, `gpioButtons` | Optional LEDs and refresh buttons on a Raspberry Pi; see [GPIO](#optional-gpio-leds-and-buttons-raspberry-pi). | none (off) |
 | `predictionDbUser`, `predictionDbPass`, `predictionDbHost`, `predictionDbName` | Optional MariaDB logging. See [Database logging](#optional-database-logging). | *(not set)* |
 | `predictionDbPort` | MariaDB port. | `3306` |
 | `type` | What this entry shows: `"sailings"` (the list) or `"map"`. See [Map view](#map-view). | `"sailings"` |
@@ -242,6 +243,41 @@ config: {
     predictionDbName: "FERRY"
 }
 ```
+
+## Optional: GPIO LEDs and buttons (Raspberry Pi)
+
+Two status LEDs and any number of refresh buttons wired to the Pi's GPIO pins. Each part is
+off unless its setting is present, and the module works the same without them.
+
+```js
+config: {
+    // ...
+    gpioStatusLed: 12,      // GPIO (BCM) numbers, not physical pin numbers
+    gpioRefreshLed: 7,
+    gpioButtons: [24, 23]   // every button triggers a refresh
+}
+```
+
+- **STATUS LED:** off until the first update arrives. Then it fades slowly in and out (once
+  every 10 seconds) while everything works, and pulses quickly (twice a second) while any
+  problem is active: the latest update failed, the sailing-space feed failed, the season's
+  timetable couldn't be loaded, database logging is failing, or a map couldn't be built. It
+  returns to the slow pulse once the next update succeeds or the database recovers.
+- **REFRESH LED:** blinks twice a second while data is being refreshed (every refresh, not
+  only button presses), for at least 5 blinks.
+- **Buttons:** a press refreshes right away and restarts the 5-minute countdown. Presses within
+  `manualRefreshCooldown` (30 seconds) of the last button refresh are ignored.
+- **Wiring:** each LED from its GPIO pin through a resistor (e.g. 330 Ω) to ground; each button
+  between its GPIO pin and ground (the Pi's internal pull-up is used, so no resistor is needed).
+- **Requirements:** Python 3 and gpiozero, both included with Raspberry Pi OS. If gpiozero is
+  missing, the log says so; install it with `sudo apt install python3-gpiozero`.
+- Both LEDs turn off when MagicMirror stops.
+- Put these settings in the sailing-list entry, not a `type: "map"` entry.
+
+How it runs: the module starts one small Python helper (`gpio/gpio_helper.py`) that drives the
+pins with gpiozero. If the helper stops unexpectedly it's restarted (at most 5 times an hour),
+and it's restarted if its memory grows past 60 MB. A GPIO problem never affects the display;
+details are in the MagicMirror log.
 
 ## Limitations
 

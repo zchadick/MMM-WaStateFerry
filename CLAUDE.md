@@ -52,6 +52,13 @@ The repo is public. Machine-specific notes live in a git-ignored `CLAUDE.local.m
   using gpiozero (both come with Raspberry Pi OS; see GPIO). It must stay small, with no
   growing state, supervised from Node, and soak-tested on the Pi before merging changes to it.
 - MagicMirror requires Node >= 22.21.1. `fetch` is used natively (no HTTP library).
+- **When chasing a problem on the mirror, consider the Pi itself, not just the module.** Past
+  issues came from the Pi: memory exhaustion from another desktop process filling RAM and swap
+  (everything slowed, including the module), and modules failing to load because MagicMirror
+  started before the desktop and network were ready at boot. Useful first checks: `free -h`,
+  per-process memory and swap (`VmSwap` in `/proc/*/status`), load average, `pm2 logs`, and the
+  refresh intervals in the prediction DB (gaps or drift past the usual ~5 min show when the Pi
+  was struggling).
 
 ## Configuration
 
@@ -96,6 +103,29 @@ Automated (`tests/`), from the module directory: `node --test` (or `npm test`).
 
 Manual: run `node --run server` from the MagicMirror root and open http://localhost:8080.
 Check the module's log lines in the server output. Stop the server when done.
+
+### Soak test on the Pi
+
+Required before merging changes to the GPIO helper (see GPIO), and useful when chasing memory
+or CPU growth. Run it for at least 48 hours on the Pi with the change deployed
+(`git pull`, then `pm2 restart MagicMirror`).
+
+1. Start the logger. It samples memory and CPU of the GPIO helper and MagicMirror every 10
+   minutes into `~/gpio-soak.log`. `nohup` plus `disown` keep it running after the SSH
+   session closes; a reboot stops it (start it again; the gap shows in the log).
+   ```
+   nohup bash -c 'while true; do echo "$(date "+%F %T") $(ps -eo rss,pcpu,etime,args --sort=-rss | grep -E "gpio_helper|electron|MagicMirror/js" | grep -v grep | awk "{printf \"%s|%sMB|%s%%|%s  \", \$4, int(\$1/1024), \$2, \$3}")" >> ~/gpio-soak.log; sleep 600; done' >/dev/null 2>&1 &
+   disown
+   ```
+2. Check it's running: `pgrep -af gpio-soak` (one line) and `tail -2 ~/gpio-soak.log`. Each line
+   is a timestamp, then per process `command|memory MB|CPU %|running time`; the GPIO helper
+   shows as `python3`, MagicMirror as several `electron` processes and `node`.
+3. After 48 hours, read `cat ~/gpio-soak.log`. **Pass:** the helper's memory stays flat (about
+   20 MB) and MagicMirror's processes don't keep growing. The CPU % from `ps` is an average over
+   each process's whole life; for the current load use
+   `top -b -n 2 -d 5 -p $(pgrep -f gpio_helper.py) | tail -2`. Electron's processes share
+   memory, so their numbers overlap and don't add up to the total in use.
+4. Stop the logger: `pkill -f gpio-soak.log`.
 
 ## Data source
 
@@ -220,6 +250,8 @@ calls after a restart.
     matched, or on multi-stop routes, no timetable is used. Times are matched by Seattle clock
     time (settles the repeated hour when daylight time ends). If the timetable fails to load,
     retried after an hour; meanwhile only `IsCancelled` applies.
+  - Known gap: right after a restart, a removed sailing whose time has passed may show as
+    cancelled even if a boat ran it late (the module didn't see it leave). Accepted.
 - Memory entries are pruned 24 hours after their scheduled time.
 - **Pre-departure refreshes:** besides the `updateInterval` timer, an extra refresh runs 1
   minute before the next upcoming (non-cancelled) sailing's scheduled and estimated
@@ -372,17 +404,12 @@ description and wiring in README.md). Each part runs only if its setting is pres
 - **Testing:** `tests/gpio.test.js` covers the controller with a stand-in process, the Python
   helper against a stand-in gpiozero (`tests/gpio_stub/`), and node_helper's use of it. Real
   pins only on the Pi: check by hand, and soak-test changes for at least 48 hours with the
-  helper's memory and CPU sampled (it should stay flat, about 20-25 MB).
+  helper's memory and CPU sampled (it should stay flat, about 20 MB; see "Soak test on the Pi").
 
 ## Open work
 
 - **Delay prediction** and **fill prediction**: built on the logged data, outside this
   module (post-processing on the DB side, e.g. Python in `predictive_helpers/`).
-- **Indicator when a backed-up DB queue has been flushed** (the red icon covers active
-  problems only).
-- **Pi performance check, only if issues show up on the Pi:** build time and memory from the
-  "Built map" log line, display smoothness, multi-week memory. (A 35-day fast-forward of the
-  helper, 10,000 cycles, showed flat heap use of about 7.2 MB.)
 
 ## Rejected ideas
 
@@ -392,6 +419,9 @@ Raise one again only if circumstances change (and say what changed).
 - **Reusing the schedule via WSF's `cacheflushdate`:** the schedule's flush date changes
   every 5 minutes regardless of content, so skipping unchanged schedules saved almost
   nothing for the added complexity.
+- **A separate indicator for when a backed-up DB queue has been flushed:** not needed. While
+  writes are failing (so the queue is backing up), the DB problem is active: red title icon and
+  STATUS LED fast pulse. Both clear only on a successful flush, which empties the queue.
 - **More than one route per MagicMirror installation:** unsupported by design; a second
   route is ignored with a warning, and the README describes a fork workaround (see
   "Design constraint: one route").

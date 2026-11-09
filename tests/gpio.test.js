@@ -279,7 +279,7 @@ const STUB = path.resolve(__dirname, "gpio_stub");
 // Run gpio_helper.py; resolves with its stdout/stderr lines and exit code once it exits
 function runHelper(args, { env = {}, input = null, afterReady = null, stub = true } = {}) {
   return new Promise((resolve, reject) => {
-    const proc = spawn("python3", [SCRIPT, ...args], { env: { ...process.env, PYTHONPATH: stub ? STUB : "", ...env } });
+    const proc = spawn("python3", [SCRIPT, ...args], { env: { ...process.env, PYTHONPATH: stub ? STUB : "", PYTHONDONTWRITEBYTECODE: "1", ...env } });
     const out = [];
     let err = "";
     let buffer = "";

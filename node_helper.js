@@ -96,9 +96,7 @@ module.exports = NodeHelper.create({
 
     // Reloads, extra pages, and other entries reuse the one cycle: send the latest result right away.
     // A page for a different route sees the active routeKey and shows a notice instead of sailings.
-    if (this.latestResult) {
-      this.sendSocketNotification(this.latestResult.notification, this.latestResult.payload);
-    }
+    if (this.latestResult) this.sendLatestResult();
     if (this.dbProblem) this.sendSocketNotification("DB_STATUS", { problem: true, routeKey: this.routeKey });
   },
 
@@ -196,7 +194,7 @@ module.exports = NodeHelper.create({
     // Manual triggers inside the cooldown don't fetch, but still pulse the icon so the press registers
     if (trigger === "manual" && Date.now() - this.lastRefreshAt < this.settings.manualRefreshCooldown) {
       this.sendSocketNotification("FETCH_STARTED", { routeKey: this.routeKey });
-      if (this.latestResult) this.sendSocketNotification(this.latestResult.notification, this.latestResult.payload);
+      if (this.latestResult) this.sendLatestResult();
       return Promise.resolve();
     }
 
@@ -216,9 +214,14 @@ module.exports = NodeHelper.create({
 
   // Send a result to every page (tagged with its route) and keep it for pages that register later
   sendResult(notification, payload, routeKey) {
-    const tagged = { ...payload, routeKey };
-    this.latestResult = { notification, payload: tagged };
-    this.sendSocketNotification(notification, tagged);
+    this.latestResult = { notification, payload: { ...payload, routeKey } };
+    this.sendLatestResult();
+  },
+
+  // The latest result with the DB status as of now (also on replays, so a page never gets a stale status)
+  sendLatestResult() {
+    const { notification, payload } = this.latestResult;
+    this.sendSocketNotification(notification, { ...payload, dbProblem: this.dbProblem });
   },
 
   // Extra refreshes 1 minute before the next upcoming sailing's scheduled and estimated departures.

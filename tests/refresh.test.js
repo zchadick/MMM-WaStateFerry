@@ -109,6 +109,21 @@ test("DB status: a problem is sent to pages, and replayed to pages that register
   assert.deepStrictEqual(helper.sent.at(-1), { notification: "DB_STATUS", payload: { problem: false, routeKey: "3-7" } });
 });
 
+test("DB status: every result carries the current status, including results replayed to pages that register later", async () => {
+  const helper = setup({ sailings: [{ at: at(11, 0), vessel: 25 }] });
+  helper.register(settings);
+  await settle(helper);
+  assert.strictEqual(helper.sent.find(m => m.notification === "FERRY_SCHEDULE").payload.dbProblem, false);
+  helper.setDbProblem(true);
+  await advance(helper, 5 * MIN);
+  assert.strictEqual(helper.sent.filter(m => m.notification === "FERRY_SCHEDULE").at(-1).payload.dbProblem, true);
+  // The problem clears after the latest result was sent: a page registering now must not get the stale status
+  helper.setDbProblem(false);
+  helper.sent.length = 0;
+  helper.register(settings);
+  assert.strictEqual(helper.sent.find(m => m.notification === "FERRY_SCHEDULE").payload.dbProblem, false);
+});
+
 test("DB writer reports a problem when writes fail, and only once", async () => {
   mock.timers.reset();
   const { createDbWriter } = require("../predictive_helpers/dbWriter");

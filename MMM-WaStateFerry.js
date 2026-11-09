@@ -33,7 +33,8 @@ Module.register("MMM-WaStateFerry", {
         mapLabelSize: 11,
         mapMarkerColors: {
             otherBoat: "#3d3d3d",   // boats not on this route (deliberately faint)
-            dockedBoat: "#9a9a9a",  // route boats at a dock
+            dockedBoat: "#000000",  // route boats at a dock: dark, so the terminal square under it reads as "boat docked"
+            dockedBoatLabel: "#9a9a9a", // their abbreviation (light, to stay readable on dark water)
             toDeparting: "#7fa7c9", // route boats heading to the departing terminal
             toArriving: "#d8c8a0",  // route boats heading to the arriving terminal
             departingTerminal: "#7fa7c9",
@@ -275,10 +276,11 @@ Module.register("MMM-WaStateFerry", {
         const escape = text => String(text).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[c]);
         const place = (lon, lat) => [(lon - west) * k * scale, (north - lat) * scale];
         const visible = ([x, y]) => x >= 0 && x <= width && y >= 0 && y <= height;
-        const marker = (x, y, cls, color, icon, rotate, label, labelPos) => `<div class="map-marker ${cls}" `
+        // The label takes the icon's color unless labelColor is given
+        const marker = (x, y, cls, color, icon, rotate, label, labelPos, labelColor = null) => `<div class="map-marker ${cls}" `
             + `style="left: ${x.toFixed(1)}px; top: ${y.toFixed(1)}px; color: ${color}; font-size: ${iconSize}px;">`
             + `<i class="fa-solid ${icon}"${rotate === null ? "" : ` style="transform: rotate(${rotate}deg);"`}></i>`
-            + `<span class="map-label ${labelPos}" style="font-size: ${labelSize}px;">${escape(label)}</span></div>`;
+            + `<span class="map-label ${labelPos}" style="font-size: ${labelSize}px;${labelColor ? ` color: ${labelColor};` : ""}">${escape(label)}</span></div>`;
 
         const parts = [];
         // Terminals: square marker, full name above
@@ -288,14 +290,16 @@ Module.register("MMM-WaStateFerry", {
             const color = t.kind === "departing" ? colors.departingTerminal : t.kind === "arriving" ? colors.arrivingTerminal : colors.otherTerminal;
             parts.push(marker(xy[0], xy[1], "map-terminal", color, icons.terminal, null, t.label, "above"));
         }
-        // Vessels: arrow rotated to the heading (the icon points north-east, so subtract 45°), anchor at a dock; abbreviation below
+        // Vessels: arrow rotated to the heading (the icon points north-east, so subtract 45°), anchor at a dock; abbreviation below.
+        // A docked boat's dark anchor sits on its terminal's square; its label keeps a light color of its own.
         const vesselColor = { other: colors.otherBoat, docked: colors.dockedBoat, toDeparting: colors.toDeparting, toArriving: colors.toArriving };
         for (const v of this.positions.vessels || []) {
             const xy = place(v.lon, v.lat);
             if (!visible(xy)) continue;
             const docked = v.state === "docked";
             parts.push(marker(xy[0], xy[1], `map-vessel state-${v.state}`, vesselColor[v.state] || colors.otherBoat,
-                docked ? icons.docked : icons.underway, docked ? null : Math.round(v.heading - 45), v.label, "below"));
+                docked ? icons.docked : icons.underway, docked ? null : Math.round(v.heading - 45), v.label, "below",
+                docked ? colors.dockedBoatLabel : null));
         }
         return parts.join("");
     },

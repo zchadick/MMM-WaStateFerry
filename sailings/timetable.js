@@ -173,7 +173,8 @@ function createTimetable({ Log }) {
     return expectedSailings(loaded.groups, departingTerminalID, date, scheduledMs);
   }
 
-  return { expectedFor };
+  // True while the latest load attempt failed (cleared by the next successful load)
+  return { expectedFor, isFailing: () => lastFailure !== null };
 }
 
 module.exports = { createTimetable, expectedSailings, seattleDate, seattleMs, minutesOfDay, RETRY_MS };

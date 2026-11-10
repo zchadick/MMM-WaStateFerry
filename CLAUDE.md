@@ -47,9 +47,18 @@ The repo is public. Machine-specific notes live in a git-ignored `CLAUDE.local.m
 
 ## Runtime
 
-- Designed for a Raspberry Pi 3B: limited CPU and RAM, so keep overhead low (no extra
-  interpreters or heavy dependencies on the mirror).
+- Designed for a Raspberry Pi 3B: limited CPU and RAM, so keep overhead low (no heavy
+  dependencies on the mirror). One exception, approved for GPIO only: a small Python helper
+  using gpiozero (both come with Raspberry Pi OS; see GPIO). It must stay small, with no
+  growing state, supervised from Node, and soak-tested on the Pi before merging changes to it.
 - MagicMirror requires Node >= 22.21.1. `fetch` is used natively (no HTTP library).
+- **When chasing a problem on the mirror, consider the Pi itself, not just the module.** Past
+  issues came from the Pi: memory exhaustion from another desktop process filling RAM and swap
+  (everything slowed, including the module), and modules failing to load because MagicMirror
+  started before the desktop and network were ready at boot. Useful first checks: `free -h`,
+  per-process memory and swap (`VmSwap` in `/proc/*/status`), load average, `pm2 logs`, and the
+  refresh intervals in the prediction DB (gaps or drift past the usual ~5 min show when the Pi
+  was struggling).
 
 ## Configuration
 
@@ -58,8 +67,10 @@ Settings go in the module's entry in `config/config.js`:
 - `apiKey`: WSDOT Traveler Information API access code
 - `departingTerminalID`, `arrivingTerminalID`: the route (default 3 → 7, Bainbridge Island → Seattle)
 - `maxSailings`, `updateInterval`, `animationSpeed`, `fade`, `fadePoint`
-- `manualRefreshCooldown` (optional, default 30 s): manual (e.g. GPIO) refreshes within
-  this time of the last refresh don't fetch; they only pulse the icon
+- `manualRefreshCooldown` (optional, default 30 s): button presses within this time of the
+  last *button* refresh are ignored (timer and pre-departure refreshes don't count)
+- `gpioStatusLed`, `gpioRefreshLed`, `gpioButtons` (optional, GPIO/BCM numbers; each part off
+  unless set; sailings entry only): see GPIO
 - `predictionDbUser`, `predictionDbPass`, `predictionDbHost`, `predictionDbName`, and
   optional `predictionDbPort` (default 3306): MariaDB logging (see Prediction database)
 - `type`: `"sailings"` (default, the list) or `"map"`. Map options are under "Map view".
@@ -70,6 +81,9 @@ Automated (`tests/`), from the module directory: `node --test` (or `npm test`).
 - `display.test.js`, `sailings.test.js`, `fetching.test.js`: stand-in API data and a mock
   clock; no network or DB needed. `display.test.js` also renders the real template with
   MagicMirror's own Nunjucks (skipped if it isn't installed beside the module).
+- `gpio.test.js`: GPIO settings, the helper supervisor (restarts, memory backstop, LED timing,
+  stop), the Python helper against a stand-in gpiozero (skipped without python3), and
+  node_helper's STATUS problems, REFRESH, buttons, and cooldown.
 - `delays.test.js`: delay tracking and the end-of-day / new-day flush, through
   `buildSailings` directly (pure; no stand-ins needed).
 - `refresh.test.js`: pre-departure refreshes, DB rows per refresh (and the daily timetable row),
@@ -89,6 +103,29 @@ Automated (`tests/`), from the module directory: `node --test` (or `npm test`).
 
 Manual: run `node --run server` from the MagicMirror root and open http://localhost:8080.
 Check the module's log lines in the server output. Stop the server when done.
+
+### Soak test on the Pi
+
+Required before merging changes to the GPIO helper (see GPIO), and useful when chasing memory
+or CPU growth. Run it for at least 48 hours on the Pi with the change deployed
+(`git pull`, then `pm2 restart MagicMirror`).
+
+1. Start the logger. It samples memory and CPU of the GPIO helper and MagicMirror every 10
+   minutes into `~/gpio-soak.log`. `nohup` plus `disown` keep it running after the SSH
+   session closes; a reboot stops it (start it again; the gap shows in the log).
+   ```
+   nohup bash -c 'while true; do echo "$(date "+%F %T") $(ps -eo rss,pcpu,etime,args --sort=-rss | grep -E "gpio_helper|electron|MagicMirror/js" | grep -v grep | awk "{printf \"%s|%sMB|%s%%|%s  \", \$4, int(\$1/1024), \$2, \$3}")" >> ~/gpio-soak.log; sleep 600; done' >/dev/null 2>&1 &
+   disown
+   ```
+2. Check it's running: `pgrep -af gpio-soak` (one line) and `tail -2 ~/gpio-soak.log`. Each line
+   is a timestamp, then per process `command|memory MB|CPU %|running time`; the GPIO helper
+   shows as `python3`, MagicMirror as several `electron` processes and `node`.
+3. After 48 hours, read `cat ~/gpio-soak.log`. **Pass:** the helper's memory stays flat (about
+   20 MB) and MagicMirror's processes don't keep growing. The CPU % from `ps` is an average over
+   each process's whole life; for the current load use
+   `top -b -n 2 -d 5 -p $(pgrep -f gpio_helper.py) | tail -2`. Electron's processes share
+   memory, so their numbers overlap and don't add up to the total in use.
+4. Stop the logger: `pkill -f gpio-soak.log`.
 
 ## Data source
 
@@ -145,9 +182,9 @@ name; some names have trailing whitespace, e.g. `"Coupeville "`). 3 = Bainbridge
 - `node_helper.js`: Node side, **owns the fetch cycle** for the one route. The first
   `REGISTER` stores the settings and starts it; later registrations get the latest result
   immediately with no new fetch. `refresh(trigger)` runs one full cycle (callers: startup,
-  timer, pre-departure as `"departure"`, and in future GPIO as `"manual"`): overlapping
-  triggers join the fetch in progress, manual triggers inside `manualRefreshCooldown` only
-  pulse, and the timer restarts `updateInterval` after every refresh. `fetchSchedule()` only
+  timer, pre-departure as `"departure"`, and GPIO buttons as `"manual"`): overlapping
+  triggers join the fetch in progress, button presses inside `manualRefreshCooldown` of the
+  last button refresh are ignored, and the timer restarts `updateInterval` after every refresh. `fetchSchedule()` only
   fetches the three feeds, logs them to the DB, calls `buildSailings`, and sends the result
   via `sendResult()` (caches it and tags it with `routeKey`, e.g. `"3-7"`). After each result
   it plans the next pre-departure refresh (`scheduleDepartureRefresh`). It also relays DB
@@ -166,6 +203,9 @@ name; some names have trailing whitespace, e.g. `"Coupeville "`). 3 = Bainbridge
   draws the SVG; `referenceData.js` keeps vessel abbreviations and terminal locations;
   `vesselPositions.js` turns the vessel feed into marker data. `map_data/`: the NOAA-derived
   map data (see its README). `map_cache/`: generated SVGs (git-ignored).
+- `gpio/`: optional LEDs and buttons. `gpioController.js` (Node) validates the settings and
+  supervises one `gpio_helper.py` (Python, gpiozero) over stdin/stdout lines; node_helper.js
+  tells it the STATUS mode and when refreshes start and finish, and gets button presses back.
 - `package.json`: dependencies `mariadb` (DB logging), `@turf/bbox-clip` and `d3-geo`
   (map view); `node_modules/` is git-ignored.
 
@@ -210,6 +250,8 @@ calls after a restart.
     matched, or on multi-stop routes, no timetable is used. Times are matched by Seattle clock
     time (settles the repeated hour when daylight time ends). If the timetable fails to load,
     retried after an hour; meanwhile only `IsCancelled` applies.
+  - Known gap: right after a restart, a removed sailing whose time has passed may show as
+    cancelled even if a boat ran it late (the module didn't see it leave). Accepted.
 - Memory entries are pruned 24 hours after their scheduled time.
 - **Pre-departure refreshes:** besides the `updateInterval` timer, an extra refresh runs 1
   minute before the next upcoming (non-cancelled) sailing's scheduled and estimated
@@ -336,26 +378,38 @@ data; parsing, dedup, analysis, and prediction happen in post-processing on the 
 - Querying: bodies are valid JSON (`JSON_VALUE` / `JSON_LENGTH` / `JSON_TABLE`); WSF dates
   stay in `/Date(...)/` form.
 
+## GPIO
+
+Optional STATUS and REFRESH LEDs and refresh buttons on a Raspberry Pi (user-facing
+description and wiring in README.md). Each part runs only if its setting is present.
+- **STATUS:** off until the first result; then a slow pulse (fade in 5 s, out 5 s: 0.1 Hz) or,
+  while any problem is active, a fast pulse (0.25 s each way: 2 Hz). Problems: the latest
+  refresh failed, the space feed failed, the timetable failed to load, the DB is failing, or a
+  map failed. Resolved by the next successful refresh, a recovered DB write, or a map built.
+- **REFRESH:** blinks at 2 Hz (0.25 s on/off) during every refresh, at least 5 blinks
+  (2.5 s); a longer refresh blinks until it ends, stopping at the end of a blink.
+- **Buttons:** press only (not hold or release), switch to ground with the internal pull-up,
+  50 ms debounce; each calls `refresh("manual")`.
+- **Both LEDs off** at start and when the module stops.
+- **Why Python:** Node GPIO packages (`onoff`, `opengpio`, `node-libgpiod`) are compiled at
+  install and have repeatedly broken on Raspberry Pi OS Bookworm / kernel 6.6+ in other
+  MagicMirror modules; gpiozero comes with the OS, gives a real fade (software PWM on any pin),
+  and handles debounce.
+- **Safeguards** (keep them): the helper holds no growing state and changes an LED only on a new
+  mode; it exits with both LEDs off on stdin EOF, parent exit, or SIGTERM; setup failures
+  (gpiozero missing, pin busy) exit with code 2 and aren't retried; other exits are restarted
+  after 10 s, then 60 s, at most 5 in an hour; the controller checks the helper's memory every
+  10 min (`/proc/<pid>/status`) and restarts it above 60 MB; stdout lines over 200 characters
+  and unknown lines are ignored. GPIO problems never affect the display.
+- **Testing:** `tests/gpio.test.js` covers the controller with a stand-in process, the Python
+  helper against a stand-in gpiozero (`tests/gpio_stub/`), and node_helper's use of it. Real
+  pins only on the Pi: check by hand, and soak-test changes for at least 48 hours with the
+  helper's memory and CPU sampled (it should stay flat, about 20 MB; see "Soak test on the Pi").
+
 ## Open work
 
 - **Delay prediction** and **fill prediction**: built on the logged data, outside this
   module (post-processing on the DB side, e.g. Python in `predictive_helpers/`).
-- **Pi GPIO** status LEDs and buttons: see the plan below.
-- **Indicator when a backed-up DB queue has been flushed** (the red icon covers active
-  problems only).
-- **Pi performance check, only if issues show up on the Pi:** build time and memory from the
-  "Built map" log line, display smoothness, multi-week memory. (A 35-day fast-forward of the
-  helper, 10,000 cycles, showed flat heap use of about 7.2 MB.)
-
-### Pi GPIO plan
-
-Two status LEDs and two push buttons on the Pi's GPIO pins: the LEDs show service status;
-a button triggers a manual refresh via `refresh("manual")` (the cooldown already exists).
-- Optional, like DB logging: off unless configured; the module must work without GPIO.
-- Runs in node_helper.js. Newer Raspberry Pi OS versions changed GPIO access (the old
-  sysfs approach used by `onoff` may not work); libgpiod is an option. Check the OS first.
-- Open: pin numbers and wiring; what each LED shows (on/off/blinking); what the second
-  button does.
 
 ## Rejected ideas
 
@@ -365,6 +419,9 @@ Raise one again only if circumstances change (and say what changed).
 - **Reusing the schedule via WSF's `cacheflushdate`:** the schedule's flush date changes
   every 5 minutes regardless of content, so skipping unchanged schedules saved almost
   nothing for the added complexity.
+- **A separate indicator for when a backed-up DB queue has been flushed:** not needed. While
+  writes are failing (so the queue is backing up), the DB problem is active: red title icon and
+  STATUS LED fast pulse. Both clear only on a successful flush, which empties the queue.
 - **More than one route per MagicMirror installation:** unsupported by design; a second
   route is ignored with a warning, and the README describes a fork workaround (see
   "Design constraint: one route").

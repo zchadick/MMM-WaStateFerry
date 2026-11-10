@@ -8,7 +8,9 @@ Module.register("MMM-WaStateFerry", {
         animationSpeed: 1000,
         fade: true,
         fadePoint: 0.25, // Start fading 1/4 of the way down the list (same as calendar/weather)
-        manualRefreshCooldown: 30 * 1000, // Manual (e.g. GPIO) refreshes within this time of the last refresh are ignored
+        manualRefreshCooldown: 30 * 1000, // Button presses within this time of the last button refresh are ignored
+        // Optional GPIO (Raspberry Pi), by GPIO/BCM number; no defaults, so nothing runs unless set in config.js:
+        // gpioStatusLed: 12, gpioRefreshLed: 7, gpioButtons: [24, 23]
 
         // What this entry shows: "sailings" (the list) or "map"
         type: "sailings",
@@ -317,6 +319,10 @@ Module.register("MMM-WaStateFerry", {
 
         // Pass prediction DB settings only if present in config.js (presence enables DB logging)
         ["predictionDbUser", "predictionDbPass", "predictionDbHost", "predictionDbName", "predictionDbPort"].forEach(key => {
+            if (key in this.config) settings[key] = this.config[key];
+        });
+        // Likewise GPIO settings (presence turns each part on)
+        ["gpioStatusLed", "gpioRefreshLed", "gpioButtons"].forEach(key => {
             if (key in this.config) settings[key] = this.config[key];
         });
 

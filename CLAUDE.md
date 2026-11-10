@@ -426,10 +426,68 @@ description and wiring in README.md). Each part runs only if its setting is pres
   pins only on the Pi: check by hand, and soak-test changes for at least 48 hours with the
   helper's memory and CPU sampled (it should stay flat, about 20 MB; see "Soak test on the Pi").
 
+## Prediction data (planned; not built yet)
+
+Goal: collect and preprocess everything needed to predict sailing **delays** and how fast
+sailings **fill**. Modeling itself is a separate, later step, run ad hoc on more powerful
+machines. **Built for this one setup:** it doesn't need to be general or work for other users;
+anyone else can adapt the code. **Keep this section complete:** every change to the prediction
+work updates it in the same pull request (jobs, tables, sources, schedule, how to run and
+backfill), and it's checked against the code before merging.
+
+### Data to collect (beyond the WSF feeds the module already logs)
+
+| Data | Why | Source | Limits / cost | Backfill |
+|---|---|---|---|---|
+| **Weather** at both terminals: hourly temperature, precipitation, cloud cover, WMO weather code | Good weather brings more riders at some times of year | **Open-Meteo** (by coordinates) | Free, no key, non-commercial use; ~10,000 calls/day allowed | Yes: archive back to 1940; the most recent days via the forecast API's past days |
+| **Traffic** leading to and from each terminal | Slow traffic leaving a terminal slows unloading and loading, causing backups | **Google Routes API**: traffic-aware vs. normal travel time (WSDOT's API doesn't have the road traffic needed) | Traffic-aware requests bill as Routes **Pro**: 5,000 free/month, then $10 per 1,000. 2 routes every 15 min during service hours ≈ 4,800/month (free); every 5 min around the clock ≈ 17,000 (~$120/month). Billing account required. | No (no historical traffic) |
+| **Holidays** | e.g. summer 3-day weekends bring more vehicles | Python `holidays` library (`US`, subdivision `WA`) | Free, computed locally | Yes |
+| **School calendars** | School breaks change ridership | No calendar feeds exist (Bainbridge Island SD, Seattle Public Schools): a small hand-maintained table from the districts' yearly calendars (OSPI also lists statewide breaks) | Free; update yearly | Yes |
+| **Events** at **Lumen Field** and **T-Mobile Park** only (a short walk from Colman Dock) | Game and concert traffic delays sailings | **Ticketmaster Discovery API** (free key) for upcoming events | 5,000 calls/day | Later: past events from team schedules (MLB's free stats API for the Mariners; a small hand-entered table for others) |
+| **WSF bulletins** | WSF posts notices when there are problems | **The WSDOT API already used**: `schedule/rest/alerts` (active alerts: ID, type, affected routes, publish date, text) and `terminals/rest/terminalbulletins/{id}` | Free, same key | No (only active alerts are listed); poll ~every 15 min, dedupe by bulletin ID in processing |
+
+**Traffic is stored only as a score.** Google restricts caching or storing most Maps content
+(lat/lng at most 30 days; stored travel times are a grey area). So raw traffic data isn't kept
+beyond what processing needs: only a derived **score of general traffic conditions** to and
+from each terminal is stored, never detailed data for specific routes or road segments.
+Because nothing in `FERRY` can be deleted, raw traffic responses are **never written to
+`FERRY`**: the collector computes the score in memory and writes only the score.
+
+### Architecture
+
+- **Runs on the NAS that hosts the DB, not the Pi.** The module on the Pi keeps logging only
+  the WSF feeds it fetches for the display.
+- **Code lives in this repo, in `predictive_helpers/`**, in Python wherever it doesn't run on
+  the Pi. The NAS runs it from its own clone of the repo.
+- **Scheduled jobs on the NAS** (DSM Task Scheduler or Docker): collectors (API calls and
+  inserts, each source on its own interval), plus a **nightly processing job** after service
+  ends that turns the day's raw data into derived tables: one row per sailing (scheduled and
+  actual departure, delay, vessel, cancelled), each sailing's fill curve, and the matching
+  weather, traffic, holiday, event, and bulletin features. These jobs need little CPU.
+- **Raw data is kept; derived data goes in derived tables.** How derived data is written
+  (inserted, versioned, or rebuilt) is still to be decided. Prefer doing processing as SQL
+  inside MariaDB, including across databases (e.g. `INSERT INTO <derived db>.<table> SELECT
+  ... FROM FERRY.api_snapshots ...`; MariaDB 10.11's `JSON_TABLE` can unpack the raw WSF
+  JSON), so data never leaves the DB server. The never-delete rule applies to `FERRY`.
+- **Settings come from `config.js`**, copied to the NAS like any other machine. Python reads it
+  as plain text and pulls out the few values it needs (API keys, DB settings, route IDs) with
+  simple regex written for this config, failing clearly if a value isn't found. New collector
+  settings (e.g. Google Maps and Ticketmaster keys) go in the sailings entry's `apiKeys`.
+- **Order of work:** set up collection for all sources first; then backfill what can be
+  backfilled (weather, holidays, school calendars, events) to the start of logging
+  (Oct 20, 2026).
+
+### Open questions
+
+- DB privileges: can the DB user create and write a second database (for derived tables)?
+- How the traffic score is defined, and which routes feed it.
+- Polling interval per source.
+
 ## Open work
 
-- **Delay prediction** and **fill prediction**: built on the logged data, outside this
-  module (post-processing on the DB side, e.g. Python in `predictive_helpers/`).
+- **Prediction data collection and processing:** see "Prediction data".
+- **Delay prediction** and **fill prediction** (modeling): after the data is collected and
+  processed; run ad hoc on more powerful machines, outside this module.
 
 ## Rejected ideas
 
@@ -439,6 +497,8 @@ Raise one again only if circumstances change (and say what changed).
 - **Reusing the schedule via WSF's `cacheflushdate`:** the schedule's flush date changes
   every 5 minutes regardless of content, so skipping unchanged schedules saved almost
   nothing for the added complexity.
+- **NWS api.weather.gov for weather data:** it keeps only 7 days of station observations, so
+  it can't backfill; Open-Meteo is used instead.
 - **A separate indicator for when a backed-up DB queue has been flushed:** not needed. While
   writes are failing (so the queue is backing up), the DB problem is active: red title icon and
   STATUS LED fast pulse. Both clear only on a successful flush, which empties the queue.

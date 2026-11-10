@@ -48,53 +48,53 @@ function validateCorner(corner, name, errors) {
 // Returns a list of error messages (empty when the map settings are valid)
 function validateMapConfig(config) {
   const errors = [];
-  const ulOk = validateCorner(config.mapUpperLeft, "mapUpperLeft", errors);
-  const lrOk = validateCorner(config.mapLowerRight, "mapLowerRight", errors);
+  const ulOk = validateCorner(config.mapUpperLeft, "map.upperLeft", errors);
+  const lrOk = validateCorner(config.mapLowerRight, "map.lowerRight", errors);
   if (ulOk && lrOk) {
-    if (config.mapUpperLeft.lat <= config.mapLowerRight.lat) errors.push("mapUpperLeft must be north of mapLowerRight");
-    if (config.mapUpperLeft.lon >= config.mapLowerRight.lon) errors.push("mapUpperLeft must be west of mapLowerRight");
+    if (config.mapUpperLeft.lat <= config.mapLowerRight.lat) errors.push("map.upperLeft must be north of map.lowerRight");
+    if (config.mapUpperLeft.lon >= config.mapLowerRight.lon) errors.push("map.upperLeft must be west of map.lowerRight");
   }
 
   if (!Number.isInteger(config.mapWidth) || config.mapWidth < 1 || config.mapWidth > MAX_WIDTH) {
-    errors.push(`mapWidth must be a whole number of pixels from 1 to ${MAX_WIDTH}`);
+    errors.push(`map.width must be a whole number of pixels from 1 to ${MAX_WIDTH}`);
   }
-  if (!DETAIL_LEVELS.includes(config.mapDetail)) errors.push(`mapDetail must be one of: ${DETAIL_LEVELS.join(", ")}`);
+  if (!DETAIL_LEVELS.includes(config.mapDetail)) errors.push(`map.detail must be one of: ${DETAIL_LEVELS.join(", ")}`);
 
   const layers = config.mapLayers || {};
   for (const layer of ["depth", "contours", "coastline"]) {
-    if (typeof layers[layer] !== "boolean") errors.push(`mapLayers.${layer} must be true or false`);
+    if (typeof layers[layer] !== "boolean") errors.push(`map.layers.${layer} must be true or false`);
   }
 
   const colors = config.mapColors || {};
   for (const name of ["land", "water", "contour", "coastline"]) {
-    if (typeof colors[name] !== "string" || !SAFE_COLOR.test(colors[name])) errors.push(`mapColors.${name} must be a CSS color`);
+    if (typeof colors[name] !== "string" || !SAFE_COLOR.test(colors[name])) errors.push(`map.colors.${name} must be a CSS color`);
   }
   if (!Array.isArray(colors.depth) || colors.depth.length !== DEPTH_LAYERS.length
     || colors.depth.some(c => typeof c !== "string" || !SAFE_COLOR.test(c))) {
-    errors.push(`mapColors.depth must be a list of ${DEPTH_LAYERS.length} CSS colors (30 ft to 600 ft)`);
+    errors.push(`map.colors.depth must be a list of ${DEPTH_LAYERS.length} CSS colors (30 ft to 600 ft)`);
   }
 
   const widths = config.mapLineWidths || {};
   for (const name of ["coastline", "contour"]) {
-    if (!isNumber(widths[name]) || widths[name] < 0 || widths[name] > 10) errors.push(`mapLineWidths.${name} must be a number from 0 to 10`);
+    if (!isNumber(widths[name]) || widths[name] < 0 || widths[name] > 10) errors.push(`map.lineWidths.${name} must be a number from 0 to 10`);
   }
 
   if (!isNumber(config.mapEdgeFade) || config.mapEdgeFade < 0 || config.mapEdgeFade > 0.5) {
-    errors.push("mapEdgeFade must be a number from 0 to 0.5");
+    errors.push("map.edgeFade must be a number from 0 to 0.5");
   }
 
   // Ferry and terminal markers (drawn by the page over the map, not part of the SVG)
-  for (const name of ["mapMarkerSize", "mapLabelSize"]) {
-    if (!isNumber(config[name]) || config[name] < 4 || config[name] > 64) errors.push(`${name} must be a number of pixels from 4 to 64`);
+  for (const [name, label] of [["mapMarkerSize", "map.markers.size"], ["mapLabelSize", "map.markers.labelSize"]]) {
+    if (!isNumber(config[name]) || config[name] < 4 || config[name] > 64) errors.push(`${label} must be a number of pixels from 4 to 64`);
   }
   const markerColors = config.mapMarkerColors || {};
   for (const name of MARKER_COLORS) {
-    if (typeof markerColors[name] !== "string" || !SAFE_COLOR.test(markerColors[name])) errors.push(`mapMarkerColors.${name} must be a CSS color`);
+    if (typeof markerColors[name] !== "string" || !SAFE_COLOR.test(markerColors[name])) errors.push(`map.markers.colors.${name} must be a CSS color`);
   }
   const icons = config.mapIcons || {};
   for (const name of ["underway", "docked", "terminal"]) {
     if (typeof icons[name] !== "string" || !ICON_NAME.test(icons[name])) {
-      errors.push(`mapIcons.${name} must be a Font Awesome icon name like "fa-location-arrow"`);
+      errors.push(`map.markers.icons.${name} must be a Font Awesome icon name like "fa-location-arrow"`);
     }
   }
   return errors;

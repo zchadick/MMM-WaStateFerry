@@ -62,25 +62,42 @@ The repo is public. Machine-specific notes live in a git-ignored `CLAUDE.local.m
 
 ## Configuration
 
-Settings go in the module's entry in `config/config.js`:
+Settings go in the module's entry in `config/config.js`, grouped by function (user-facing
+table in README.md "Options"):
 
-- `apiKey`: WSDOT Traveler Information API access code
-- `departingTerminalID`, `arrivingTerminalID`: the route (default 3 → 7, Bainbridge Island → Seattle)
-- `maxSailings`, `updateInterval`, `animationSpeed`, `fade`, `fadePoint`
-- `manualRefreshCooldown` (optional, default 30 s): button presses within this time of the
-  last *button* refresh are ignored (timer and pre-departure refreshes don't count)
-- `gpioStatusLed`, `gpioRefreshLed`, `gpioButtons` (optional, GPIO/BCM numbers; each part off
-  unless set; sailings entry only): see GPIO
-- `predictionDbUser`, `predictionDbPass`, `predictionDbHost`, `predictionDbName`, and
-  optional `predictionDbPort` (default 3306): MariaDB logging (see Prediction database)
-- `type`: `"sailings"` (default, the list) or `"map"`. Map options are under "Map view".
+- `type`: `"sailings"` (default, the list) or `"map"` (top level).
+- `apiKeys.wsdot`: WSDOT Traveler Information API access code. (Future collector keys, e.g.
+  Google Maps, go in `apiKeys` too.)
+- `route`: `departingTerminalID`, `arrivingTerminalID` (default 3 → 7, Bainbridge Island → Seattle).
+- `display`: `maxSailings`, `updateInterval`, `animationSpeed`, `fade`, `fadePoint`.
+- `map`: map entries only; see "Map view".
+- `predictionDb` (optional): `host`, `user`, `password`, `database` (all four turn DB logging
+  on), optional `port` (default 3306). See Prediction database.
+- `gpio` (optional, sailings entry only): `statusLed`, `refreshLed`, `buttons` (GPIO/BCM numbers;
+  each part off unless set), and `buttonCooldown` (default 30 s): presses within this time of the
+  last *button* refresh are ignored (timer and pre-departure refreshes don't count). See GPIO.
+
+How it's handled:
+- **Defaults per group:** MagicMirror merges only top-level defaults (unless an entry sets
+  `configDeepMerge`), so the page's `start()` merges defaults into every group
+  (`mergeDefaults`: plain objects merge, lists and values replace). A partial group keeps the
+  rest of its defaults.
+- **The helper's names are unchanged:** the page translates the groups into the flat names
+  `node_helper.js`, `map/`, `predictive_helpers/`, and `gpio/` already use (e.g. `map.width` →
+  `mapWidth`, `predictionDb.password` → `predictionDbPass`, `gpio.buttonCooldown` →
+  `manualRefreshCooldown`) in its `REGISTER` message, sending DB and GPIO settings only if
+  present. User-facing messages use the grouped names.
+- **Old flat names are a clean break:** if any are still in `config.js` (list in the page's
+  `oldSettings`), the entry doesn't start: it shows each old name and its new place on screen
+  and sends `CONFIG_ERROR`, which the helper logs.
 
 ## Testing
 
 Automated (`tests/`), from the module directory: `node --test` (or `npm test`).
 - `display.test.js`, `sailings.test.js`, `fetching.test.js`: stand-in API data and a mock
   clock; no network or DB needed. `display.test.js` also renders the real template with
-  MagicMirror's own Nunjucks (skipped if it isn't installed beside the module).
+  MagicMirror's own Nunjucks (skipped if it isn't installed beside the module), and covers the
+  grouped settings (per-group defaults, what the page sends the helper, old-name errors).
 - `gpio.test.js`: GPIO settings, the helper supervisor (restarts, memory backstop, LED timing,
   stop), the Python helper against a stand-in gpiozero (skipped without python3), and
   node_helper's STATUS problems, REFRESH, buttons, and cooldown.
@@ -183,7 +200,7 @@ name; some names have trailing whitespace, e.g. `"Coupeville "`). 3 = Bainbridge
   `REGISTER` stores the settings and starts it; later registrations get the latest result
   immediately with no new fetch. `refresh(trigger)` runs one full cycle (callers: startup,
   timer, pre-departure as `"departure"`, and GPIO buttons as `"manual"`): overlapping
-  triggers join the fetch in progress, button presses inside `manualRefreshCooldown` of the
+  triggers join the fetch in progress, button presses inside `gpio.buttonCooldown` of the
   last button refresh are ignored, and the timer restarts `updateInterval` after every refresh. `fetchSchedule()` only
   fetches the three feeds, logs them to the DB, calls `buildSailings`, and sends the result
   via `sendResult()` (caches it and tags it with `routeKey`, e.g. `"3-7"`). After each result
@@ -293,18 +310,20 @@ how the data was made are in `map_data/README.md`.
 depth layers 30–600 ft, at low/medium/high detail, covering lon −123.35…−122.15,
 lat 47.00…48.80.
 
-**Settings** (validated; problems are listed on screen and in the log; nested defaults are
-merged by the module, so partial settings keep the rest):
-- `mapUpperLeft` / `mapLowerRight`: `{ lat, lon }` in decimal degrees, **required, no
+**Settings** (the entry's `map` group; validated; problems are listed on screen and in the
+log; defaults are merged per group, so partial settings keep the rest):
+- `map.upperLeft` / `map.lowerRight`: `{ lat, lon }` in decimal degrees, **required, no
   defaults**.
-- `mapWidth` (px, default 400): MagicMirror doesn't tell modules their width, so the height
+- `map.width` (px, default 400): MagicMirror doesn't tell modules their width, so the height
   follows the area's shape. The aspect ratio is limited to **5:1 … 1:5**, keeping the
   upper-left corner and trimming the right or bottom.
-- `mapDetail` (`auto` picks low/medium/high from metres per pixel), `mapLayers` (depth,
-  contours, coastline), `mapColors`, `mapLineWidths`, `mapEdgeFade` (default 0.04 per side).
-- Markers: `mapMarkerSize` (14), `mapLabelSize` (11), `mapMarkerColors` (`otherBoat`,
-  `dockedBoat`, `dockedBoatLabel`, `toDeparting`, `toArriving`, `departingTerminal`, `arrivingTerminal`,
-  `otherTerminal`), `mapIcons` (`underway`, `docked`, `terminal`: Font Awesome names).
+- `map.detail` (`auto` picks low/medium/high from metres per pixel), `map.layers` (depth,
+  contours, coastline), `map.colors`, `map.lineWidths`, `map.edgeFade` (default 0.04 per side).
+- `map.markers`: `size` (14), `labelSize` (11), `colors` (`otherBoat`, `dockedBoat`,
+  `dockedBoatLabel`, `toDeparting`, `toArriving`, `departingTerminal`, `arrivingTerminal`,
+  `otherTerminal`), `icons` (`underway`, `docked`, `terminal`: Font Awesome names).
+- The page sends these to the helper under the helper's own names (`mapUpperLeft`, `mapWidth`,
+  `mapMarkerColors`, …; see Configuration).
 
 **Map image (Pi-friendly):** the helper builds the map **once as an SVG file**, in a
 background thread (one build at a time), shown with `<img>` so the browser rasterizes it
@@ -348,15 +367,16 @@ on updates, never the image; markers outside the map are skipped; names are HTML
   register in any order) that the map doesn't function without a sailings entry.
 
 **Example map area** used in the README and for testing (not a default): upper-left
-47.73803, −122.61430; lower-right 47.57325, −122.29558 (400 × 307 px at `mapWidth` 400).
+47.73803, −122.61430; lower-right 47.57325, −122.29558 (400 × 307 px at `map.width` 400).
 
 ## Prediction database
 
 Optional raw logging via `predictive_helpers/dbWriter.js`. The module only **saves** raw
 data; parsing, dedup, analysis, and prediction happen in post-processing on the DB side.
-- **Enabled when all four keys exist** in the module's config (`predictionDbUser`,
-  `predictionDbPass`, `predictionDbHost`, `predictionDbName`), whatever their values.
-  Any key missing → silently off. The page forwards only the keys that exist.
+- **Enabled when all four keys exist** in the entry's `predictionDb` group (`host`, `user`,
+  `password`, `database`), whatever their values. Any key missing → silently off. The page
+  forwards only the keys that exist (as `predictionDbHost`, `predictionDbUser`,
+  `predictionDbPass`, `predictionDbName`; `port` as `predictionDbPort`).
 - Each fetch writes three rows (one per response, same `snapshot_utc`), including HTTP
   errors. Duplicates are fine. The route's timetable (`sailings`) is written once per service
   day, when it loads (one more row per retry if it fails with an HTTP error).

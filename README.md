@@ -52,30 +52,117 @@ Add the module to the `modules` array in `config/config.js`:
     module: "MMM-WaStateFerry",
     position: "bottom_right",
     config: {
-        apiKey: "YOUR-WSDOT-ACCESS-CODE",
-        departingTerminalID: 3, // Bainbridge Island
-        arrivingTerminalID: 7   // Seattle
+        apiKeys: { wsdot: "YOUR-WSDOT-ACCESS-CODE" },
+        route: { departingTerminalID: 3, arrivingTerminalID: 7 } // Bainbridge Island → Seattle
     }
 },
 ```
 
 ### Options
 
-| Option | Description | Default |
-|---|---|---|
-| `apiKey` | **Required.** Your WSDOT Traveler Information API access code. | `""` |
-| `departingTerminalID` | Terminal the route departs from (see [Terminal IDs](#terminal-ids)). | `3` (Bainbridge Island) |
-| `arrivingTerminalID` | Terminal the route arrives at. | `7` (Seattle) |
-| `maxSailings` | Number of upcoming sailings to show. Recently departed sailings are shown in addition. | `5` |
-| `updateInterval` | Time between data refreshes, in milliseconds. | `300000` (5 min) |
-| `animationSpeed` | Fade-in speed on first load, in milliseconds. | `1000` |
-| `fade` | Fade rows toward the bottom of the list. | `true` |
-| `fadePoint` | Where the fade starts, as a fraction of the list (0–1). | `0.25` |
-| `manualRefreshCooldown` | Minimum time between refreshes from the [GPIO buttons](#optional-gpio-leds-and-buttons-raspberry-pi), in milliseconds. Presses sooner than this after the last button refresh are ignored. | `30000` |
-| `gpioStatusLed`, `gpioRefreshLed`, `gpioButtons` | Optional LEDs and refresh buttons on a Raspberry Pi; see [GPIO](#optional-gpio-leds-and-buttons-raspberry-pi). | none (off) |
-| `predictionDbUser`, `predictionDbPass`, `predictionDbHost`, `predictionDbName` | Optional MariaDB logging. See [Database logging](#optional-database-logging). | *(not set)* |
-| `predictionDbPort` | MariaDB port. | `3306` |
-| `type` | What this entry shows: `"sailings"` (the list) or `"map"`. See [Map view](#map-view). | `"sailings"` |
+Settings are grouped by what they do. You only need to list the settings you want to change;
+anything left out of a group keeps its default.
+
+| Group | Setting | Description | Default |
+|---|---|---|---|
+| — | `type` | What this entry shows: `"sailings"` (the list) or `"map"`. See [Map view](#map-view). | `"sailings"` |
+| `apiKeys` | `wsdot` | **Required.** Your WSDOT Traveler Information API access code. | `""` |
+| `route` | `departingTerminalID` | Terminal the route departs from (see [Terminal IDs](#terminal-ids)). | `3` (Bainbridge Island) |
+| | `arrivingTerminalID` | Terminal the route arrives at. | `7` (Seattle) |
+| `display` | `maxSailings` | Number of upcoming sailings to show. Recently departed sailings are shown in addition. | `5` |
+| | `updateInterval` | Time between data refreshes, in milliseconds. | `300000` (5 min) |
+| | `animationSpeed` | Fade-in speed on first load, in milliseconds. | `1000` |
+| | `fade` | Fade rows toward the bottom of the list. | `true` |
+| | `fadePoint` | Where the fade starts, as a fraction of the list (0–1). | `0.25` |
+| `map` | *(see [Map options](#map-options))* | Map entries only. | |
+| `predictionDb` | `host`, `user`, `password`, `database`, `port` | Optional MariaDB logging. See [Database logging](#optional-database-logging). | *(not set)*; `port` `3306` |
+| `gpio` | `statusLed`, `refreshLed`, `buttons` | Optional LEDs and refresh buttons on a Raspberry Pi. See [GPIO](#optional-gpio-leds-and-buttons-raspberry-pi). | *(not set: off)* |
+| | `buttonCooldown` | Presses within this time (milliseconds) of the last button refresh are ignored. | `30000` |
+
+**Updating from an older version:** settings used to be one flat list (e.g. `apiKey`,
+`mapWidth`, `predictionDbPass`). Those names no longer work: if any are still in `config.js`,
+the module shows each old name and where it moved (e.g. `apiKey → apiKeys.wsdot`) instead of
+running.
+
+### Full example
+
+A sailing list with database logging and GPIO, plus a map. Replace the placeholder values with
+your own. Only `apiKeys.wsdot` (sailing list) and the map's two corners are required; every
+other setting is optional and shown here with its default unless noted, so leave out any you
+don't change.
+
+```js
+{
+    module: "MMM-WaStateFerry",
+    position: "bottom_right",
+    config: {
+        type: "sailings",
+        apiKeys: { wsdot: "YOUR-WSDOT-ACCESS-CODE" },
+        route: {
+            departingTerminalID: 3,         // Bainbridge Island
+            arrivingTerminalID: 7           // Seattle
+        },
+        display: {
+            maxSailings: 5,
+            updateInterval: 5 * 60 * 1000,  // 5 minutes
+            animationSpeed: 1000,
+            fade: true,
+            fadePoint: 0.25
+        },
+        predictionDb: {                     // optional: leave out to turn database logging off
+            host: "your-db-host",
+            port: 3306,
+            user: "your-db-user",
+            password: "YOUR-DB-PASSWORD",
+            database: "FERRY"
+        },
+        gpio: {                             // optional, Raspberry Pi only: leave out the pins you don't use
+            statusLed: 12,                  // GPIO (BCM) numbers; no defaults
+            refreshLed: 7,
+            buttons: [24, 23],
+            buttonCooldown: 30 * 1000
+        }
+    }
+},
+{
+    module: "MMM-WaStateFerry",
+    position: "bottom_left",
+    config: {
+        type: "map",
+        map: {
+            upperLeft: { lat: 47.73102, lon: -122.61430 },   // required, no default
+            lowerRight: { lat: 47.56501, lon: -122.29558 },  // required, no default
+            width: 410,                                      // default 400
+            detail: "auto",
+            edgeFade: 0.04,
+            layers: { depth: true, contours: true, coastline: true },
+            colors: {
+                land: "#333333",
+                water: "#1f3a52",
+                depth: ["#1a3247", "#162b3d", "#122433", "#0e1d2a", "#0a1620", "#060f17"],
+                contour: "rgba(0,0,0,0.25)",
+                coastline: "#626e78"
+            },
+            lineWidths: { coastline: 1, contour: 0.5 },
+            markers: {
+                size: 14,
+                labelSize: 11,
+                colors: {
+                    otherBoat: "#3d3d3d",
+                    dockedBoat: "#000000",
+                    dockedBoatLabel: "#9a9a9a",
+                    toDeparting: "#7fa7c9",
+                    toArriving: "#d8c8a0",
+                    departingTerminal: "#7fa7c9",
+                    arrivingTerminal: "#d8c8a0",
+                    otherTerminal: "#666"
+                },
+                icons: { underway: "fa-location-arrow", docked: "fa-anchor", terminal: "fa-square" }
+            }
+        }
+    }
+},
+```
 
 ### Terminal IDs
 
@@ -138,15 +225,17 @@ only when map settings change; the markers update with each data refresh.
     position: "top_left",
     config: {
         type: "map",
-        mapUpperLeft: { lat: 47.73803, lon: -122.61430 },  // Kingston area
-        mapLowerRight: { lat: 47.57325, lon: -122.29558 }, // Seattle and Lake Union
-        mapWidth: 400
+        map: {
+            upperLeft: { lat: 47.73803, lon: -122.61430 },  // Kingston area
+            lowerRight: { lat: 47.57325, lon: -122.29558 }, // Seattle and Lake Union
+            width: 400
+        }
     }
 },
 ```
 
 - **The map needs a sailings entry.** Keep your regular `MMM-WaStateFerry` entry (with
-  `apiKey` and the route); the map uses the same route and doesn't need them repeated. A map
+  `apiKeys` and the route); the map uses the same route and doesn't need them repeated. A map
   without a sailings entry still draws, but without ferry or terminal markers, and a warning
   is logged.
 - You can show **several maps** at once (for example a close-up and an overview).
@@ -154,28 +243,30 @@ only when map settings change; the markers update with each data refresh.
 
 ### Map options
 
-| Option | Description | Default |
+All inside the entry's `map` group:
+
+| Setting | Description | Default |
 |---|---|---|
-| `mapUpperLeft` | **Required.** Upper-left (north-west) corner, `{ lat, lon }` in decimal degrees. | *(none)* |
-| `mapLowerRight` | **Required.** Lower-right (south-east) corner. | *(none)* |
-| `mapWidth` | Map width in pixels (1–2000). The height follows the area's shape. | `400` |
-| `mapDetail` | `"auto"`, `"low"`, `"medium"`, or `"high"`. `"auto"` picks from the map's scale. | `"auto"` |
-| `mapLayers` | `{ depth, contours, coastline }`, each `true` or `false`. | all `true` |
-| `mapColors` | `land`, `water`, `contour`, `coastline`, and `depth` (six colors, 30 ft to 600 ft). | dark grey land, blue water darkening with depth |
-| `mapLineWidths` | `{ coastline, contour }` in pixels. | `{ coastline: 1, contour: 0.5 }` |
-| `mapEdgeFade` | Share of each side that fades to black (`0` to `0.5`; `0` turns it off). | `0.04` |
-| `mapMarkerSize` | Ferry and terminal icon size in pixels (4–64). Adjust to suit your screen. | `14` |
-| `mapLabelSize` | Label text size in pixels (4–64). | `11` |
-| `mapMarkerColors` | `otherBoat`, `dockedBoat`, `dockedBoatLabel`, `toDeparting`, `toArriving`, `departingTerminal`, `arrivingTerminal`, `otherTerminal`. A docked boat's anchor (`dockedBoat`) is black, so it marks its terminal's square as "boat docked"; its abbreviation (`dockedBoatLabel`) stays light grey. | black, muted greys, blue, and sand |
-| `mapIcons` | Font Awesome icon names: `underway`, `docked`, `terminal`. | `fa-location-arrow`, `fa-anchor`, `fa-square` |
+| `upperLeft` | **Required.** Upper-left (north-west) corner, `{ lat, lon }` in decimal degrees. | *(none)* |
+| `lowerRight` | **Required.** Lower-right (south-east) corner. | *(none)* |
+| `width` | Map width in pixels (1–2000). The height follows the area's shape. | `400` |
+| `detail` | `"auto"`, `"low"`, `"medium"`, or `"high"`. `"auto"` picks from the map's scale. | `"auto"` |
+| `edgeFade` | Share of each side that fades to black (`0` to `0.5`; `0` turns it off). | `0.04` |
+| `layers` | `{ depth, contours, coastline }`, each `true` or `false`. | all `true` |
+| `colors` | `land`, `water`, `contour`, `coastline`, and `depth` (six colors, 30 ft to 600 ft). | dark grey land, blue water darkening with depth |
+| `lineWidths` | `{ coastline, contour }` in pixels. | `{ coastline: 1, contour: 0.5 }` |
+| `markers.size` | Ferry and terminal icon size in pixels (4–64). Adjust to suit your screen. | `14` |
+| `markers.labelSize` | Label text size in pixels (4–64). | `11` |
+| `markers.colors` | `otherBoat`, `dockedBoat`, `dockedBoatLabel`, `toDeparting`, `toArriving`, `departingTerminal`, `arrivingTerminal`, `otherTerminal`. A docked boat's anchor (`dockedBoat`) is black, so it marks its terminal's square as "boat docked"; its abbreviation (`dockedBoatLabel`) stays light grey. | black, muted greys, blue, and sand |
+| `markers.icons` | Font Awesome icon names: `underway`, `docked`, `terminal`. | `fa-location-arrow`, `fa-anchor`, `fa-square` |
 
 You only need to list the colors, icons, layers, or line widths you want to change; the rest
-keep their defaults. Coordinates must be decimal degrees (to convert degrees-minutes-seconds:
+keep their defaults (e.g. `map: { markers: { colors: { toArriving: "#ffffff" } } }`). Coordinates must be decimal degrees (to convert degrees-minutes-seconds:
 degrees + minutes/60 + seconds/3600, negative for west longitudes and south latitudes).
-`mapUpperLeft` and `mapLowerRight` have no defaults; if either is missing, or any map setting is
+`upperLeft` and `lowerRight` have no defaults; if either is missing, or any map setting is
 invalid, the problems are listed on the mirror in place of the map.
 
-**Map shape:** the width is fixed by `mapWidth` and the height follows the area you choose.
+**Map shape:** the width is fixed by `width` and the height follows the area you choose.
 Very wide or very tall areas are limited to between 5:1 and 1:5; the upper-left corner is kept
 and the right or bottom is trimmed.
 
@@ -195,7 +286,7 @@ terms and citation, the data's limitations, and how it was made.
 
 This module shows a single route. You can add it to your config more than once (for
 example, to show the same route in two places), but every entry must use the same
-`departingTerminalID` and `arrivingTerminalID`. An entry with a different route is
+`route` (`departingTerminalID` and `arrivingTerminalID`). An entry with a different route is
 ignored, and a warning is written to the MagicMirror log.
 
 **Need a second route?** Install a renamed copy of the module. MagicMirror treats it as a
@@ -217,8 +308,8 @@ Both copies can log to the same database; rows are distinguished by their
 
 ## Optional: database logging
 
-If all four of `predictionDbUser`, `predictionDbPass`, `predictionDbHost`, and
-`predictionDbName` are present in the config, the module saves every raw WSF API response
+If the entry has a `predictionDb` group with all four of `host`, `user`, `password`, and
+`database` (and optionally `port`, default 3306), the module saves every raw WSF API response
 to MariaDB for later analysis (for example, predicting delays or how fast sailings fill).
 Leave them out and the module works without a database.
 
@@ -237,10 +328,12 @@ Leave them out and the module works without a database.
 ```js
 config: {
     // ...
-    predictionDbUser: "ferry_logger",
-    predictionDbPass: "your-password",
-    predictionDbHost: "db.local",
-    predictionDbName: "FERRY"
+    predictionDb: {
+        host: "db.local",
+        user: "ferry_logger",
+        password: "your-password",
+        database: "FERRY"
+    }
 }
 ```
 
@@ -252,9 +345,11 @@ off unless its setting is present, and the module works the same without them.
 ```js
 config: {
     // ...
-    gpioStatusLed: 12,      // GPIO (BCM) numbers, not physical pin numbers
-    gpioRefreshLed: 7,
-    gpioButtons: [24, 23]   // every button triggers a refresh
+    gpio: {
+        statusLed: 12,      // GPIO (BCM) numbers, not physical pin numbers
+        refreshLed: 7,
+        buttons: [24, 23]   // every button triggers a refresh
+    }
 }
 ```
 
@@ -266,7 +361,7 @@ config: {
 - **REFRESH LED:** blinks twice a second while data is being refreshed (every refresh, not
   only button presses), for at least 5 blinks.
 - **Buttons:** a press refreshes right away and restarts the 5-minute countdown. Presses within
-  `manualRefreshCooldown` (30 seconds) of the last button refresh are ignored.
+  `gpio.buttonCooldown` (30 seconds) of the last button refresh are ignored.
 - **Wiring:** each LED from its GPIO pin through a resistor (e.g. 330 Ω) to ground; each button
   between its GPIO pin and ground (the Pi's internal pull-up is used, so no resistor is needed).
 - **Requirements:** Python 3 and gpiozero, both included with Raspberry Pi OS. If gpiozero is

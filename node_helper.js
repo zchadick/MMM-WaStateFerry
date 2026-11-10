@@ -73,7 +73,10 @@ module.exports = NodeHelper.create({
   },
 
   socketNotificationReceived(notification, payload) {
-    if (notification === "REGISTER") {
+    if (notification === "CONFIG_ERROR") {
+      // A page found old setting names in config.js (it shows the same message on screen)
+      Log.error(`[MMM-WaStateFerry] ${payload && payload.message}`);
+    } else if (notification === "REGISTER") {
       if (payload && payload.type === "map") {
         this.registerMap(payload);
       } else {

@@ -64,27 +64,27 @@ test("valid default settings pass validation", () => {
 
 test("validation catches bad corners, width, detail, layers, colors, line widths, and fade", () => {
   const cases = [
-    [{ mapUpperLeft: undefined }, /mapUpperLeft is required/],
-    [{ mapLowerRight: undefined }, /mapLowerRight is required/],
-    [{ mapUpperLeft: null }, /mapUpperLeft is required/],
-    [{ mapUpperLeft: { lat: "47.7", lon: -122.6 } }, /mapUpperLeft must be \{ lat, lon \}/],
-    [{ mapUpperLeft: { lat: 95, lon: -122.6 } }, /mapUpperLeft.lat must be between -90 and 90/],
-    [{ mapLowerRight: { lat: 47.5, lon: -190 } }, /mapLowerRight.lon must be between -180 and 180/],
-    [{ mapUpperLeft: { lat: 47.5, lon: -122.6 } }, /must be north of mapLowerRight/],
-    [{ mapUpperLeft: { lat: 47.7, lon: -122.2 } }, /must be west of mapLowerRight/],
-    [{ mapWidth: 400.5 }, /mapWidth must be a whole number/],
-    [{ mapWidth: 0 }, /mapWidth must be a whole number/],
-    [{ mapWidth: 2001 }, /mapWidth must be a whole number/],
-    [{ mapDetail: "ultra" }, /mapDetail must be one of/],
-    [{ mapLayers: { depth: "yes", contours: true, coastline: true } }, /mapLayers.depth must be true or false/],
-    [{ mapColors: { ...config().mapColors, water: "red\"/><script>" } }, /mapColors.water must be a CSS color/],
-    [{ mapColors: { ...config().mapColors, depth: ["#000"] } }, /mapColors.depth must be a list of 6/],
-    [{ mapLineWidths: { coastline: -1, contour: 0.5 } }, /mapLineWidths.coastline must be a number/],
-    [{ mapEdgeFade: 0.8 }, /mapEdgeFade must be a number from 0 to 0.5/],
-    [{ mapMarkerSize: 2 }, /mapMarkerSize must be a number of pixels from 4 to 64/],
-    [{ mapLabelSize: "big" }, /mapLabelSize must be a number of pixels from 4 to 64/],
-    [{ mapMarkerColors: { ...config().mapMarkerColors, toArriving: "red;}</style>" } }, /mapMarkerColors.toArriving must be a CSS color/],
-    [{ mapIcons: { ...config().mapIcons, underway: "ship\" onerror=\"x" } }, /mapIcons.underway must be a Font Awesome icon name/]
+    [{ mapUpperLeft: undefined }, /map\.upperLeft is required/],
+    [{ mapLowerRight: undefined }, /map\.lowerRight is required/],
+    [{ mapUpperLeft: null }, /map\.upperLeft is required/],
+    [{ mapUpperLeft: { lat: "47.7", lon: -122.6 } }, /map\.upperLeft must be \{ lat, lon \}/],
+    [{ mapUpperLeft: { lat: 95, lon: -122.6 } }, /map\.upperLeft\.lat must be between -90 and 90/],
+    [{ mapLowerRight: { lat: 47.5, lon: -190 } }, /map\.lowerRight\.lon must be between -180 and 180/],
+    [{ mapUpperLeft: { lat: 47.5, lon: -122.6 } }, /must be north of map\.lowerRight/],
+    [{ mapUpperLeft: { lat: 47.7, lon: -122.2 } }, /must be west of map\.lowerRight/],
+    [{ mapWidth: 400.5 }, /map\.width must be a whole number/],
+    [{ mapWidth: 0 }, /map\.width must be a whole number/],
+    [{ mapWidth: 2001 }, /map\.width must be a whole number/],
+    [{ mapDetail: "ultra" }, /map\.detail must be one of/],
+    [{ mapLayers: { depth: "yes", contours: true, coastline: true } }, /map\.layers\.depth must be true or false/],
+    [{ mapColors: { ...config().mapColors, water: "red\"/><script>" } }, /map\.colors\.water must be a CSS color/],
+    [{ mapColors: { ...config().mapColors, depth: ["#000"] } }, /map\.colors\.depth must be a list of 6/],
+    [{ mapLineWidths: { coastline: -1, contour: 0.5 } }, /map\.lineWidths\.coastline must be a number/],
+    [{ mapEdgeFade: 0.8 }, /map\.edgeFade must be a number from 0 to 0.5/],
+    [{ mapMarkerSize: 2 }, /map\.markers\.size must be a number of pixels from 4 to 64/],
+    [{ mapLabelSize: "big" }, /map\.markers\.labelSize must be a number of pixels from 4 to 64/],
+    [{ mapMarkerColors: { ...config().mapMarkerColors, toArriving: "red;}</style>" } }, /map\.markers\.colors\.toArriving must be a CSS color/],
+    [{ mapIcons: { ...config().mapIcons, underway: "ship\" onerror=\"x" } }, /map\.markers\.icons\.underway must be a Font Awesome icon name/]
   ];
   for (const [overrides, expected] of cases) {
     const errors = validateMapConfig(config(overrides));

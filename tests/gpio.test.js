@@ -57,10 +57,10 @@ test("settings: GPIO numbers for each part; nothing configured means no GPIO at 
 
 test("settings: invalid or repeated numbers turn GPIO off with a reason", () => {
   for (const [settings, message] of [
-    [{ gpioStatusLed: 40 }, /gpioStatusLed must be a GPIO number/],
-    [{ gpioRefreshLed: "7" }, /gpioRefreshLed must be a GPIO number/],
-    [{ gpioButtons: 24 }, /gpioButtons must be a list/],
-    [{ gpioButtons: [24, 1.5] }, /gpioButtons must be a list/],
+    [{ gpioStatusLed: 40 }, /gpio\.statusLed must be a GPIO number/],
+    [{ gpioRefreshLed: "7" }, /gpio\.refreshLed must be a GPIO number/],
+    [{ gpioButtons: 24 }, /gpio\.buttons must be a list/],
+    [{ gpioButtons: [24, 1.5] }, /gpio\.buttons must be a list/],
     [{ gpioStatusLed: 12, gpioButtons: [12] }, /only once/]
   ]) {
     const { pins, errors } = validateGpioConfig(settings);

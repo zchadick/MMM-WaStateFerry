@@ -28,14 +28,14 @@ const isPin = value => Number.isInteger(value) && value >= 0 && value <= 27;
 function validateGpioConfig(settings) {
   const errors = [];
   const pins = { status: null, refresh: null, buttons: [] };
-  for (const [key, name] of [["gpioStatusLed", "status"], ["gpioRefreshLed", "refresh"]]) {
+  for (const [key, name, label] of [["gpioStatusLed", "status", "gpio.statusLed"], ["gpioRefreshLed", "refresh", "gpio.refreshLed"]]) {
     if (settings[key] === undefined || settings[key] === null) continue;
     if (isPin(settings[key])) pins[name] = settings[key];
-    else errors.push(`${key} must be a GPIO number from 0 to 27`);
+    else errors.push(`${label} must be a GPIO number from 0 to 27`);
   }
   if (settings.gpioButtons !== undefined && settings.gpioButtons !== null) {
     if (Array.isArray(settings.gpioButtons) && settings.gpioButtons.every(isPin)) pins.buttons = [...settings.gpioButtons];
-    else errors.push("gpioButtons must be a list of GPIO numbers from 0 to 27, e.g. [24, 23]");
+    else errors.push("gpio.buttons must be a list of GPIO numbers from 0 to 27, e.g. [24, 23]");
   }
   const used = [pins.status, pins.refresh, ...pins.buttons].filter(p => p !== null);
   if (new Set(used).size !== used.length) errors.push("each GPIO number can be used only once");

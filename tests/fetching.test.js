@@ -226,7 +226,7 @@ test("invalid map settings get MAP_ERROR with the messages", async () => {
   assert.strictEqual(helper.sent.length, 1);
   assert.strictEqual(helper.sent[0].notification, "MAP_ERROR");
   assert.strictEqual(helper.sent[0].payload.identifier, "module_9_MMM-WaStateFerry");
-  assert.ok(helper.sent[0].payload.errors.some(e => /mapWidth/.test(e)));
+  assert.ok(helper.sent[0].payload.errors.some(e => /map\.width/.test(e)));
 });
 
 test("map without a sailings entry: one log warning after 60 seconds", async () => {

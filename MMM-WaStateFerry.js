@@ -1,49 +1,88 @@
 Module.register("MMM-WaStateFerry", {
+    // Settings are grouped by function; each group's defaults are merged in by mergeDefaults()
+    // (MagicMirror only merges top-level defaults), so a partial group keeps its other defaults
     defaults: {
-        departingTerminalID: 3, // Bainbridge Island
-        arrivingTerminalID: 7,  // Seattle
-        apiKey: "",
-        maxSailings: 5,
-        updateInterval: 5 * 60 * 1000,
-        animationSpeed: 1000,
-        fade: true,
-        fadePoint: 0.25, // Start fading 1/4 of the way down the list (same as calendar/weather)
-        manualRefreshCooldown: 30 * 1000, // Button presses within this time of the last button refresh are ignored
-        // Optional GPIO (Raspberry Pi), by GPIO/BCM number; no defaults, so nothing runs unless set in config.js:
-        // gpioStatusLed: 12, gpioRefreshLed: 7, gpioButtons: [24, 23]
+        type: "sailings", // what this entry shows: "sailings" (the list) or "map"
+        apiKeys: { wsdot: "" }, // WSDOT Traveler Information API access code
+        route: { departingTerminalID: 3, arrivingTerminalID: 7 }, // Bainbridge Island → Seattle
+        display: {
+            maxSailings: 5,
+            updateInterval: 5 * 60 * 1000,
+            animationSpeed: 1000,
+            fade: true,
+            fadePoint: 0.25 // Start fading 1/4 of the way down the list (same as calendar/weather)
+        },
 
-        // What this entry shows: "sailings" (the list) or "map"
-        type: "sailings",
-
-        // Map view (type: "map"). Required in config.js, no defaults: mapUpperLeft and mapLowerRight
+        // Map view (type: "map"). Required in config.js, no defaults: map.upperLeft and map.lowerRight
         // ({ lat, lon } in decimal degrees). The height follows the area's aspect ratio
-        mapWidth: 400,
-        mapDetail: "auto", // "auto" | "low" | "medium" | "high"
-        mapLayers: { depth: true, contours: true, coastline: true },
-        mapColors: {
-            land: "#333333",
-            water: "#1f3a52",
-            depth: ["#1a3247", "#162b3d", "#122433", "#0e1d2a", "#0a1620", "#060f17"], // 30, 60, 120, 180, 300, 600 ft
-            contour: "rgba(0,0,0,0.25)",
-            coastline: "#626e78"
+        map: {
+            width: 400,
+            detail: "auto", // "auto" | "low" | "medium" | "high"
+            edgeFade: 0.04, // share of each side faded to black; 0 = off
+            layers: { depth: true, contours: true, coastline: true },
+            colors: {
+                land: "#333333",
+                water: "#1f3a52",
+                depth: ["#1a3247", "#162b3d", "#122433", "#0e1d2a", "#0a1620", "#060f17"], // 30, 60, 120, 180, 300, 600 ft
+                contour: "rgba(0,0,0,0.25)",
+                coastline: "#626e78"
+            },
+            lineWidths: { coastline: 1, contour: 0.5 },
+            // Ferry and terminal markers (sizes in px; the mirror's screen size dictates the right values)
+            markers: {
+                size: 14,
+                labelSize: 11,
+                colors: {
+                    otherBoat: "#3d3d3d",   // boats not on this route (deliberately faint)
+                    dockedBoat: "#000000",  // route boats at a dock: dark, so the terminal square under it reads as "boat docked"
+                    dockedBoatLabel: "#9a9a9a", // their abbreviation (light, to stay readable on dark water)
+                    toDeparting: "#7fa7c9", // route boats heading to the departing terminal
+                    toArriving: "#d8c8a0",  // route boats heading to the arriving terminal
+                    departingTerminal: "#7fa7c9",
+                    arrivingTerminal: "#d8c8a0",
+                    otherTerminal: "#666"
+                },
+                icons: { underway: "fa-location-arrow", docked: "fa-anchor", terminal: "fa-square" } // Font Awesome names
+            }
         },
-        mapLineWidths: { coastline: 1, contour: 0.5 },
-        mapEdgeFade: 0.04, // share of each side faded to black; 0 = off
 
-        // Ferry and terminal markers on the map (sizes in px; the mirror's screen size dictates the right values)
-        mapMarkerSize: 14,
-        mapLabelSize: 11,
-        mapMarkerColors: {
-            otherBoat: "#3d3d3d",   // boats not on this route (deliberately faint)
-            dockedBoat: "#000000",  // route boats at a dock: dark, so the terminal square under it reads as "boat docked"
-            dockedBoatLabel: "#9a9a9a", // their abbreviation (light, to stay readable on dark water)
-            toDeparting: "#7fa7c9", // route boats heading to the departing terminal
-            toArriving: "#d8c8a0",  // route boats heading to the arriving terminal
-            departingTerminal: "#7fa7c9",
-            arrivingTerminal: "#d8c8a0",
-            otherTerminal: "#666"
-        },
-        mapIcons: { underway: "fa-location-arrow", docked: "fa-anchor", terminal: "fa-square" } // Font Awesome names
+        // Optional prediction DB logging: on only when predictionDb has host, user, password and database
+        // (port optional, default 3306). No defaults.
+
+        // Optional GPIO (Raspberry Pi), by GPIO/BCM number; pins have no defaults, so nothing runs unless set:
+        // gpio: { statusLed: 12, refreshLed: 7, buttons: [24, 23] }
+        gpio: { buttonCooldown: 30 * 1000 } // button presses within this time of the last button refresh are ignored
+    },
+
+    // Settings from before they were grouped, and where each one moved (old names are reported, not used)
+    oldSettings: {
+        departingTerminalID: "route.departingTerminalID", arrivingTerminalID: "route.arrivingTerminalID",
+        apiKey: "apiKeys.wsdot",
+        maxSailings: "display.maxSailings", updateInterval: "display.updateInterval",
+        animationSpeed: "display.animationSpeed", fade: "display.fade", fadePoint: "display.fadePoint",
+        manualRefreshCooldown: "gpio.buttonCooldown",
+        gpioStatusLed: "gpio.statusLed", gpioRefreshLed: "gpio.refreshLed", gpioButtons: "gpio.buttons",
+        mapUpperLeft: "map.upperLeft", mapLowerRight: "map.lowerRight", mapWidth: "map.width",
+        mapDetail: "map.detail", mapLayers: "map.layers", mapColors: "map.colors",
+        mapLineWidths: "map.lineWidths", mapEdgeFade: "map.edgeFade", mapMarkerSize: "map.markers.size",
+        mapLabelSize: "map.markers.labelSize", mapMarkerColors: "map.markers.colors", mapIcons: "map.markers.icons",
+        predictionDbUser: "predictionDb.user", predictionDbPass: "predictionDb.password",
+        predictionDbHost: "predictionDb.host", predictionDbName: "predictionDb.database", predictionDbPort: "predictionDb.port"
+    },
+
+    // Defaults merged into the settings at every level (plain objects only; lists and values replace)
+    mergeDefaults (defaults, settings) {
+        const isObject = value => value !== null && typeof value === "object" && !Array.isArray(value);
+        const merged = { ...defaults };
+        for (const [key, value] of Object.entries(settings || {})) {
+            merged[key] = isObject(value) && isObject(defaults[key]) ? this.mergeDefaults(defaults[key], value) : value;
+        }
+        return merged;
+    },
+
+    // Old (flat) setting names still in config.js, as "old → new" lines; empty when the config is current
+    oldSettingNames () {
+        return Object.keys(this.config).filter(key => key in this.oldSettings).map(key => `${key} → ${this.oldSettings[key]}`);
     },
 
     // One full cycle of the title icon pulse; must match the CSS animation duration
@@ -53,6 +92,24 @@ Module.register("MMM-WaStateFerry", {
     timeZone: "America/Los_Angeles",
 
     start () {
+        this.config = this.mergeDefaults(this.defaults, this.config);
+
+        // A config.js still using the old flat names would quietly fall back to defaults: stop and say what moved
+        const oldNames = this.oldSettingNames();
+        if (oldNames.length > 0) {
+            const message = `The module's settings are now grouped; update config.js: ${oldNames.join("; ")}. See the README.`;
+            Log.error(`[MMM-WaStateFerry] ${message}`);
+            this.sendSocketNotification("CONFIG_ERROR", { message });
+            if (this.config.type === "map") {
+                this.map = { status: "error", errors: oldNames.map(line => `${line} (setting renamed; see the README)`) };
+            } else {
+                this.sailings = [];
+                this.loaded = true;
+                this.error = message;
+            }
+            return;
+        }
+
         if (this.config.type === "map") {
             this.map = { status: "loading" };
             this.positions = null;
@@ -69,7 +126,7 @@ Module.register("MMM-WaStateFerry", {
         this.dbProblem = false;
         this.fetching = false;
         this.pulseUntil = 0;
-        this.routeKey = `${this.config.departingTerminalID}-${this.config.arrivingTerminalID}`;
+        this.routeKey = `${this.config.route.departingTerminalID}-${this.config.route.arrivingTerminalID}`;
         this.register();
     },
 
@@ -79,7 +136,7 @@ Module.register("MMM-WaStateFerry", {
 
     getTemplateData () {
         if (this.config.type === "map") {
-            return { map: this.map, edgeFadePercent: Math.round(this.config.mapEdgeFade * 1000) / 10, markersHtml: this.markersHtml() };
+            return { map: this.map, edgeFadePercent: Math.round(this.config.map.edgeFade * 1000) / 10, markersHtml: this.markersHtml() };
         }
 
 
@@ -93,7 +150,7 @@ Module.register("MMM-WaStateFerry", {
             // Space colors only for upcoming, non-cancelled sailings (departed counts are uncolored)
             spaceClass: sailing.hasDeparted || sailing.isCancelled ? "" : this.spaceClass(sailing.driveUpSpaceCount, sailing.maxSpaceCount),
             // Fade multiplies with the departed-row dimming (0.4) instead of overriding it
-            opacity: this.config.fade
+            opacity: this.config.display.fade
                 ? Math.round(this.fadeOpacity(index, this.sailings.length) * (sailing.hasDeparted ? 0.4 : 1) * 100) / 100
                 : null
         }));
@@ -145,8 +202,8 @@ Module.register("MMM-WaStateFerry", {
 
     // Row opacity for the bottom fade (same formula as the default calendar/weather modules)
     fadeOpacity (index, count) {
-        if (!this.config.fade || this.config.fadePoint >= 1) return 1;
-        const startingPoint = count * Math.max(this.config.fadePoint, 0);
+        if (!this.config.display.fade || this.config.display.fadePoint >= 1) return 1;
+        const startingPoint = count * Math.max(this.config.display.fadePoint, 0);
         if (index < startingPoint) return 1;
         return 1 - (index - startingPoint) / (count - startingPoint);
     },
@@ -198,11 +255,11 @@ Module.register("MMM-WaStateFerry", {
             const firstLoad = !this.loaded;
             this.loaded = true;
             this.error = null;
-            this.finishFetch(firstLoad ? this.config.animationSpeed : 0);
+            this.finishFetch(firstLoad ? this.config.display.animationSpeed : 0);
         } else if (notification === "FERRY_ERROR") {
             // Keep showing the last good data (the footer notes the failed update); with no data yet, show the error
             this.error = payload.message;
-            this.finishFetch(this.sailings.length > 0 ? 0 : this.config.animationSpeed);
+            this.finishFetch(this.sailings.length > 0 ? 0 : this.config.display.animationSpeed);
         } else if (notification === "DB_STATUS") {
             // Prediction DB problem (configured but failing): red title icon; toggled in place, no re-render
             this.dbProblem = payload.problem === true;
@@ -221,24 +278,24 @@ Module.register("MMM-WaStateFerry", {
     },
 
     // Map pages register once with their map settings; the helper builds (or reuses) the map SVG.
-    // Nested defaults are merged here so partial settings (e.g. one color) keep the other defaults.
+    // The grouped settings (defaults already merged in) are sent under the helper's own names.
     registerMap () {
-        const merged = name => ({ ...this.defaults[name], ...this.config[name] });
+        const map = this.config.map;
         this.sendSocketNotification("REGISTER", {
             type: "map",
             identifier: this.identifier,
-            mapUpperLeft: this.config.mapUpperLeft,
-            mapLowerRight: this.config.mapLowerRight,
-            mapWidth: this.config.mapWidth,
-            mapDetail: this.config.mapDetail,
-            mapLayers: merged("mapLayers"),
-            mapColors: merged("mapColors"),
-            mapLineWidths: merged("mapLineWidths"),
-            mapEdgeFade: this.config.mapEdgeFade,
-            mapMarkerSize: this.config.mapMarkerSize,
-            mapLabelSize: this.config.mapLabelSize,
-            mapMarkerColors: merged("mapMarkerColors"),
-            mapIcons: merged("mapIcons")
+            mapUpperLeft: map.upperLeft,
+            mapLowerRight: map.lowerRight,
+            mapWidth: map.width,
+            mapDetail: map.detail,
+            mapLayers: map.layers,
+            mapColors: map.colors,
+            mapLineWidths: map.lineWidths,
+            mapEdgeFade: map.edgeFade,
+            mapMarkerSize: map.markers.size,
+            mapLabelSize: map.markers.labelSize,
+            mapMarkerColors: map.markers.colors,
+            mapIcons: map.markers.icons
         });
     },
 
@@ -253,10 +310,10 @@ Module.register("MMM-WaStateFerry", {
         if (payload.identifier !== this.identifier) return;
         if (notification === "MAP_READY") {
             this.map = { status: "ready", src: this.file(`map_cache/${payload.file}`), width: payload.width, height: payload.height, view: payload.view };
-            this.updateDom(this.config.animationSpeed);
+            this.updateDom(this.config.display.animationSpeed);
         } else if (notification === "MAP_ERROR") {
             this.map = { status: "error", errors: payload.errors };
-            this.updateDom(this.config.animationSpeed);
+            this.updateDom(this.config.display.animationSpeed);
         }
     },
 
@@ -270,11 +327,7 @@ Module.register("MMM-WaStateFerry", {
     markersHtml () {
         if (!this.map || this.map.status !== "ready" || !this.map.view || !this.positions) return "";
         const { west, north, k, scale, width, height } = this.map.view;
-        const merged = name => ({ ...this.defaults[name], ...this.config[name] });
-        const colors = merged("mapMarkerColors");
-        const icons = merged("mapIcons");
-        const iconSize = this.config.mapMarkerSize;
-        const labelSize = this.config.mapLabelSize;
+        const { colors, icons, size: iconSize, labelSize } = this.config.map.markers;
         const escape = text => String(text).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[c]);
         const place = (lon, lat) => [(lon - west) * k * scale, (north - lat) * scale];
         const visible = ([x, y]) => x >= 0 && x <= width && y >= 0 && y <= height;
@@ -308,22 +361,27 @@ Module.register("MMM-WaStateFerry", {
 
     // Register once with the helper, which runs the fetch cycle for every page (weather-module pattern)
     register () {
+        // The grouped settings are sent under the helper's own names
+        const { route, display, gpio } = this.config;
         const settings = {
-            departingTerminalID: this.config.departingTerminalID,
-            arrivingTerminalID: this.config.arrivingTerminalID,
-            apiKey: this.config.apiKey,
-            maxSailings: this.config.maxSailings,
-            updateInterval: this.config.updateInterval,
-            manualRefreshCooldown: this.config.manualRefreshCooldown
+            departingTerminalID: route.departingTerminalID,
+            arrivingTerminalID: route.arrivingTerminalID,
+            apiKey: this.config.apiKeys.wsdot,
+            maxSailings: display.maxSailings,
+            updateInterval: display.updateInterval,
+            manualRefreshCooldown: gpio.buttonCooldown
         };
 
         // Pass prediction DB settings only if present in config.js (presence enables DB logging)
-        ["predictionDbUser", "predictionDbPass", "predictionDbHost", "predictionDbName", "predictionDbPort"].forEach(key => {
-            if (key in this.config) settings[key] = this.config[key];
+        const db = this.config.predictionDb || {};
+        const dbNames = { user: "predictionDbUser", password: "predictionDbPass", host: "predictionDbHost", database: "predictionDbName", port: "predictionDbPort" };
+        Object.entries(dbNames).forEach(([key, name]) => {
+            if (key in db) settings[name] = db[key];
         });
-        // Likewise GPIO settings (presence turns each part on)
-        ["gpioStatusLed", "gpioRefreshLed", "gpioButtons"].forEach(key => {
-            if (key in this.config) settings[key] = this.config[key];
+        // Likewise GPIO pins (presence turns each part on)
+        const gpioNames = { statusLed: "gpioStatusLed", refreshLed: "gpioRefreshLed", buttons: "gpioButtons" };
+        Object.entries(gpioNames).forEach(([key, name]) => {
+            if (key in gpio) settings[name] = gpio[key];
         });
 
         this.sendSocketNotification("REGISTER", settings);

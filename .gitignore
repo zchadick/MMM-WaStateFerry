@@ -1,4 +1,36 @@
+# Claude
 CLAUDE.local.md
+.claude/settings.local.json
+
+# Secrets / local config
+.env
+.env.*
+!.env.example
+*.local.*
+config.env
+*.pem
+*.key
+
+# Dependencies / build output
 node_modules/
-map_cache/
+dist/
+build/
+coverage/
+
+# Logs
+*.log
+npm-debug.log*
+
+# macOS
 .DS_Store
+._*
+
+# Editors
+*.code-workspace
+.vscode/
+.idea/
+*.swp
+*~
+
+# Module
+map_cache/

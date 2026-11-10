@@ -180,6 +180,7 @@ global.Module = { register: (name, def) => { definition = def; } };
 require(path.resolve(__dirname, "../MMM-WaStateFerry.js"));
 const mapPage = (configOverrides = {}) => {
   const m = Object.assign(Object.create(definition), { config: { ...definition.defaults, type: "map", ...configOverrides } });
+  m.config = m.mergeDefaults(m.defaults, m.config); // as start() does
   m.identifier = "module_9_MMM-WaStateFerry";
   // A 100 x 100 px view covering lon -122.5…-122.4 (k = 1 for easy numbers) and lat 47.7…47.6
   m.map = { status: "ready", view: { west: -122.5, north: 47.7, east: -122.4, south: 47.6, k: 1, scale: 1000, width: 100, height: 100 } };
@@ -212,7 +213,7 @@ test("page: docked boats use the docked icon without rotation; colors follow the
 });
 
 test("page: the docked colors can be set separately for the icon and the label", () => {
-  const m = mapPage({ mapMarkerColors: { dockedBoat: "#222", dockedBoatLabel: "#ccc" } });
+  const m = mapPage({ map: { markers: { colors: { dockedBoat: "#222", dockedBoatLabel: "#ccc" } } } });
   m.positions = { terminals: [], vessels: [{ id: 37, label: "WEN", lat: 47.65, lon: -122.45, heading: 300, state: "docked" }] };
   const html = m.markersHtml();
   assert.match(html, /color: #222;[^>]*><i class="fa-solid fa-anchor">/);
@@ -242,7 +243,7 @@ test("page: markers outside the map are skipped; nothing before the map and posi
 });
 
 test("page: sizes and partial color/icon settings are applied", () => {
-  const m = mapPage({ mapMarkerSize: 22, mapLabelSize: 15, mapMarkerColors: { toArriving: "#ff0000" }, mapIcons: { underway: "fa-ship" } });
+  const m = mapPage({ map: { markers: { size: 22, labelSize: 15, colors: { toArriving: "#ff0000" }, icons: { underway: "fa-ship" } } } });
   m.positions = { terminals: [], vessels: [{ id: 25, label: "PUY", lat: 47.65, lon: -122.45, heading: 45, state: "toArriving" }] };
   const html = m.markersHtml();
   assert.match(html, /color: #ff0000; font-size: 22px;/);

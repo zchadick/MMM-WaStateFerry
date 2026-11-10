@@ -11,9 +11,12 @@ global.Module = { register: (name, def) => { definition = def; } };
 require(path.resolve(__dirname, "../MMM-WaStateFerry.js"));
 
 // Methods run with the module's default config, as they would in MagicMirror
-const moduleWithConfig = (config = {}) => Object.assign(Object.create(definition), {
-  config: { ...definition.defaults, ...config }
-});
+// (MagicMirror merges top-level defaults; start() then merges each group's defaults)
+const moduleWithConfig = (config = {}) => {
+  const m = Object.assign(Object.create(definition), { config: { ...definition.defaults, ...config } });
+  m.config = m.mergeDefaults(m.defaults, m.config);
+  return m;
+};
 
 test("delay colors: none under 5, yellow 5-30, red over 30 to 60, purple over 60", () => {
   const m = moduleWithConfig();
@@ -75,12 +78,11 @@ test("a result for a different route shows the one-route notice, not sailings", 
 });
 
 test("default route is Bainbridge Island (3) to Seattle (7)", () => {
-  assert.strictEqual(definition.defaults.departingTerminalID, 3);
-  assert.strictEqual(definition.defaults.arrivingTerminalID, 7);
+  assert.deepStrictEqual(definition.defaults.route, { departingTerminalID: 3, arrivingTerminalID: 7 });
 });
 
 test("no fade when fade is off", () => {
-  const m = moduleWithConfig({ fade: false });
+  const m = moduleWithConfig({ display: { fade: false } });
   assert.deepStrictEqual([0, 1, 2, 3, 4].map(i => m.fadeOpacity(i, 5)), [1, 1, 1, 1, 1]);
 });
 
@@ -106,25 +108,78 @@ test("a map page only accepts its own map replies and shows errors", () => {
 });
 
 test("a map page merges nested defaults so partial settings keep the rest", () => {
-  const m = moduleWithConfig({ type: "map", mapColors: { land: "#222" }, mapLayers: { contours: false } });
+  // MagicMirror's own merge would replace the whole map group; the module merges each level's defaults
+  const m = moduleWithConfig({ type: "map", map: { colors: { land: "#222" }, layers: { contours: false }, markers: { size: 20 } } });
   m.identifier = "module_9_MMM-WaStateFerry";
-  // MagicMirror replaces nested objects unless configDeepMerge is set; simulate that shallow merge
-  m.config.mapColors = { land: "#222" };
-  m.config.mapLayers = { contours: false };
   let sent = null;
   m.sendSocketNotification = (name, payload) => { sent = { name, payload }; };
   m.registerMap();
   assert.strictEqual(sent.name, "REGISTER");
   assert.strictEqual(sent.payload.type, "map");
   assert.strictEqual(sent.payload.mapColors.land, "#222");
-  assert.strictEqual(sent.payload.mapColors.water, definition.defaults.mapColors.water);
+  assert.strictEqual(sent.payload.mapColors.water, definition.defaults.map.colors.water);
+  assert.deepStrictEqual(sent.payload.mapColors.depth, definition.defaults.map.colors.depth, "lists come from defaults whole");
   assert.deepStrictEqual(sent.payload.mapLayers, { depth: true, contours: false, coastline: true });
+  assert.strictEqual(sent.payload.mapMarkerSize, 20);
+  assert.strictEqual(sent.payload.mapLabelSize, 11, "a partial markers group keeps its other defaults");
+  assert.strictEqual(sent.payload.mapWidth, 400);
 });
 
-test("map corners have no defaults (they must be set in config.js); mapWidth defaults to 400", () => {
-  assert.strictEqual(definition.defaults.mapUpperLeft, undefined);
-  assert.strictEqual(definition.defaults.mapLowerRight, undefined);
-  assert.strictEqual(definition.defaults.mapWidth, 400);
+test("map corners have no defaults (they must be set in config.js); map.width defaults to 400", () => {
+  assert.strictEqual(definition.defaults.map.upperLeft, undefined);
+  assert.strictEqual(definition.defaults.map.lowerRight, undefined);
+  assert.strictEqual(definition.defaults.map.width, 400);
+});
+
+// ---- Grouped settings: what the page sends the helper, and old (flat) names ----
+
+const registered = config => {
+  const m = moduleWithConfig(config);
+  const sent = [];
+  m.sendSocketNotification = (name, payload) => sent.push({ name, payload });
+  global.Log = { error() {}, log() {} };
+  m.identifier = "module_9_MMM-WaStateFerry";
+  m.start();
+  delete global.Log;
+  return { m, sent };
+};
+
+test("the sailings entry sends the grouped settings under the helper's names", () => {
+  const { sent } = registered({
+    apiKeys: { wsdot: "key" }, route: { departingTerminalID: 7, arrivingTerminalID: 3 }, display: { updateInterval: 60000 },
+    predictionDb: { host: "h", user: "u", password: "p", database: "FERRY" }, gpio: { statusLed: 12, buttons: [24] }
+  });
+  assert.deepStrictEqual(sent, [{ name: "REGISTER", payload: {
+    departingTerminalID: 7, arrivingTerminalID: 3, apiKey: "key", maxSailings: 5, updateInterval: 60000,
+    manualRefreshCooldown: 30000,
+    predictionDbUser: "u", predictionDbPass: "p", predictionDbHost: "h", predictionDbName: "FERRY",
+    gpioStatusLed: 12, gpioButtons: [24]
+  } }]);
+});
+
+test("without predictionDb or GPIO pins, none of their settings are sent (so both stay off)", () => {
+  const { sent } = registered({ apiKeys: { wsdot: "key" } });
+  const keys = Object.keys(sent[0].payload);
+  assert.ok(!keys.some(k => k.startsWith("predictionDb") || k.startsWith("gpio")), keys.join());
+  // A partial predictionDb group forwards only what's there (DB logging needs all four)
+  const partial = registered({ predictionDb: { host: "h" } }).sent[0].payload;
+  assert.strictEqual(partial.predictionDbHost, "h");
+  assert.ok(!("predictionDbUser" in partial));
+});
+
+test("old (flat) setting names stop the entry with a message saying where each moved", () => {
+  const { m, sent } = registered({ apiKey: "key", predictionDbPass: "p", mapWidth: 410 });
+  assert.deepStrictEqual(sent.map(s => s.name), ["CONFIG_ERROR"], "no REGISTER: it doesn't run on defaults");
+  assert.match(sent[0].payload.message, /apiKey → apiKeys\.wsdot/);
+  assert.match(sent[0].payload.message, /predictionDbPass → predictionDb\.password/);
+  assert.match(sent[0].payload.message, /mapWidth → map\.width/);
+  assert.strictEqual(m.error, sent[0].payload.message, "shown on screen");
+  assert.strictEqual(m.loaded, true);
+
+  const map = registered({ type: "map", mapUpperLeft: { lat: 47.7, lon: -122.6 } });
+  assert.deepStrictEqual(map.sent.map(s => s.name), ["CONFIG_ERROR"]);
+  assert.strictEqual(map.m.map.status, "error");
+  assert.match(map.m.map.errors[0], /mapUpperLeft → map\.upperLeft/);
 });
 
 test("times are shown in Seattle time, whatever the server's time zone", () => {

@@ -1,5 +1,5 @@
 // Database tests for the prediction DB writer. Run from the module directory: node --test
-// Uses the MMM-WaStateFerry entry in MagicMirror's config/config.js; skipped if DB keys are missing.
+// Uses the predictionDb group of the MMM-WaStateFerry entry in MagicMirror's config/config.js; skipped if it is missing.
 // Set KEEP_TEST_TABLE=1 to write to a normal test_* table that is kept for inspection.
 
 const { test } = require("node:test");
@@ -18,12 +18,18 @@ const {
 
 const KEEP_TEST_TABLE = process.env.KEEP_TEST_TABLE === "1";
 
-// Read this module's config from MagicMirror's config.js (three levels up from tests/)
+// Read the DB settings from MagicMirror's config.js (three levels up from tests/): the entry's
+// predictionDb group, under the names the DB writer uses (as the page sends them to the helper)
 function loadModuleConfig() {
   try {
     const config = require(path.resolve(__dirname, "../../../config/config.js"));
-    const entry = config.modules.find(m => m.module === "MMM-WaStateFerry");
-    return entry ? entry.config : null;
+    const entry = config.modules.find(m => m.module === "MMM-WaStateFerry" && m.config && m.config.predictionDb);
+    if (!entry) return null;
+    const db = entry.config.predictionDb;
+    const names = { user: "predictionDbUser", password: "predictionDbPass", host: "predictionDbHost", database: "predictionDbName", port: "predictionDbPort" };
+    const settings = {};
+    for (const [key, name] of Object.entries(names)) if (key in db) settings[name] = db[key];
+    return settings;
   } catch (error) {
     return null;
   }

@@ -11,9 +11,10 @@ import sys
 import traceback
 
 import events_bulletins
+import events_weather
 import events_common as common
 
-COLLECTORS = [("bulletins", events_bulletins)]
+COLLECTORS = [("bulletins", events_bulletins), ("weather", events_weather)]
 
 
 def run(settings, conn, collectors=COLLECTORS, log=print):

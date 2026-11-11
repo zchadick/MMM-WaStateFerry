@@ -17,6 +17,7 @@ sys.path.insert(0, HELPERS)
 import events_bulletins  # noqa: E402
 import events_collect  # noqa: E402
 import events_common  # noqa: E402
+import events_weather  # noqa: E402
 
 # Shaped like the real config.js: other modules, a map entry first, then the sailings entry
 SAMPLE_CONFIG = """let config = {
@@ -59,9 +60,11 @@ def write_config(text):
 class FakeConnection:
     """Records every SQL statement and the rows inserted."""
 
-    def __init__(self):
+    def __init__(self, select_result=()):
         self.statements = []
         self.inserted = []
+        self.params = []
+        self.select_result = list(select_result)
 
     def cursor(self):
         conn = self
@@ -73,8 +76,12 @@ class FakeConnection:
             def __exit__(self, *exc):
                 return False
 
-            def execute(self, sql):
+            def execute(self, sql, params=None):
                 conn.statements.append(sql)
+                conn.params.append(params)
+
+            def fetchall(self):
+                return conn.select_result
 
             def executemany(self, sql, rows):
                 conn.statements.append(sql)
@@ -157,6 +164,74 @@ class BulletinsTest(unittest.TestCase):
         self.assertEqual(len(conn.inserted), 3)
 
 
+LOCATIONS = '[{"TerminalID": 3, "Latitude": 47.622, "Longitude": -122.509}, {"TerminalID": 7, "Latitude": 47.602, "Longitude": -122.338}, {"TerminalID": 1, "Latitude": 48.5, "Longitude": -122.6}]'
+
+
+def weather_fetch(urls, wsdot=(200, LOCATIONS), weather=(200, '{"current": {}}')):
+    def fetch(url):
+        urls.append(url)
+        return wsdot if "terminallocations" in url else weather
+    return fetch
+
+
+class WeatherTest(unittest.TestCase):
+    def test_a_normal_run_gets_coordinates_from_wsdot_then_current_weather_at_both_terminals(self):
+        urls = []
+        rows = events_weather.current_rows(SETTINGS, weather_fetch(urls), NOW)
+        self.assertEqual(urls[0], "https://www.wsdot.wa.gov/ferries/api/terminals/rest/terminallocations?apiaccesscode=TEST-KEY")
+        fields = ",".join(events_weather.FIELDS)
+        self.assertEqual(urls[1:], [
+            f"https://api.open-meteo.com/v1/forecast?latitude=47.622&longitude=-122.509&current={fields}&timezone=GMT",
+            f"https://api.open-meteo.com/v1/forecast?latitude=47.602&longitude=-122.338&current={fields}&timezone=GMT"])
+        self.assertEqual(rows, [
+            [NOW, "current", 3, 47.622, -122.509, None, None, 200, '{"current": {}}'],
+            [NOW, "current", 7, 47.602, -122.338, None, None, 200, '{"current": {}}']])
+
+    def test_the_run_fails_clearly_when_wsdot_has_no_coordinates(self):
+        with self.assertRaisesRegex(events_weather.WeatherError, r"unavailable from WSDOT \(HTTP 503\)"):
+            events_weather.current_rows(SETTINGS, weather_fetch([], wsdot=(503, "down")), NOW)
+        with self.assertRaisesRegex(events_weather.WeatherError, r"no coordinates for terminal 7"):
+            events_weather.current_rows(SETTINGS, weather_fetch([], wsdot=(200, '[{"TerminalID": 3, "Latitude": 1, "Longitude": 2}]')), NOW)
+
+    def test_an_open_meteo_error_is_stored_like_any_response(self):
+        rows = events_weather.current_rows(SETTINGS, weather_fetch([], weather=(None, None)), NOW)
+        self.assertEqual([r[7:] for r in rows], [[None, None], [None, None]])
+
+    def test_backfill_requests_the_utc_dates_covering_the_seattle_dates_hourly(self):
+        urls = []
+        start, end = datetime.date(2026, 10, 31), datetime.date(2026, 11, 1)  # spans the end of daylight time
+        rows = events_weather.backfill_rows(SETTINGS, weather_fetch(urls), NOW, start, end)
+        fields = ",".join(events_weather.FIELDS)
+        # Seattle Oct 31 00:00 PDT = Oct 31 07:00 UTC; Nov 2 00:00 PST = Nov 2 08:00 UTC
+        self.assertEqual(urls[1], "https://historical-forecast-api.open-meteo.com/v1/forecast?latitude=47.622&longitude=-122.509"
+                                  f"&start_date=2026-10-31&end_date=2026-11-02&hourly={fields}&timezone=GMT")
+        self.assertEqual([r[:7] for r in rows], [
+            [NOW, "backfill", 3, 47.622, -122.509, start, end],
+            [NOW, "backfill", 7, 47.602, -122.338, start, end]])
+
+    def test_collect_and_backfill_write_to_weather_snapshots(self):
+        conn = FakeConnection()
+        self.assertEqual(events_weather.collect(SETTINGS, conn, fetch=weather_fetch([]), now=NOW), 2)
+        events_weather.backfill(SETTINGS, conn, datetime.date(2026, 10, 20), datetime.date(2026, 10, 21), fetch=weather_fetch([]), now=NOW)
+        self.assertIn("CREATE TABLE IF NOT EXISTS `FERRY_COVARIATES`.`weather_snapshots`", conn.statements[1])
+        self.assertTrue(conn.statements[2].startswith("INSERT INTO `FERRY_COVARIATES`.`weather_snapshots` (snapshot_utc, source, terminal_id"))
+        self.assertEqual([r[1] for r in conn.inserted], ["current", "current", "backfill", "backfill"])
+        with self.assertRaisesRegex(ValueError, "before the start"):
+            events_weather.backfill(SETTINGS, conn, datetime.date(2026, 10, 21), datetime.date(2026, 10, 20), fetch=weather_fetch([]))
+
+    def test_gaps_lists_half_hours_without_a_snapshot_per_terminal_and_only_reads(self):
+        # Seattle Nov 10 (PST) = Nov 10 08:00 UTC to Nov 11 08:00 UTC; "now" is 10:00 UTC, so 4 slots so far
+        day = datetime.date(2026, 11, 10)
+        t = lambda h, m: datetime.datetime(2026, 11, 10, h, m)
+        snapshots = [(3, t(8, 1)), (3, t(8, 31)), (3, t(9, 31)),   # terminal 3 misses 09:00-09:30
+                     (7, t(8, 1))]                                   # terminal 7 misses 08:30-10:00
+        conn = FakeConnection(select_result=snapshots)
+        found = events_weather.gaps(SETTINGS, conn, day, day, now=t(10, 0))
+        self.assertEqual(found, [(3, t(9, 0), t(9, 30)), (7, t(8, 30), t(10, 0))])
+        self.assertTrue(all(sql.lstrip().upper().startswith("SELECT") for sql in conn.statements), conn.statements)
+        self.assertEqual(conn.params[0], (t(8, 0), t(10, 0)))
+
+
 class RunnerTest(unittest.TestCase):
     def test_a_failing_collector_is_logged_and_the_others_still_run(self):
         ran = []
@@ -180,7 +255,7 @@ class RunnerTest(unittest.TestCase):
         self.assertIn("working: 2 row(s) written", lines)
 
     def test_every_collector_is_registered(self):
-        self.assertEqual([name for name, _ in events_collect.COLLECTORS], ["bulletins"])
+        self.assertEqual([name for name, _ in events_collect.COLLECTORS], ["bulletins", "weather"])
 
 
 class InsertOnlyTest(unittest.TestCase):

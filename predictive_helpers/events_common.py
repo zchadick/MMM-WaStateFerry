@@ -83,6 +83,13 @@ def ensure_table(conn, table, create_sql):
         cursor.execute(create_sql.format(table=f"`{DATABASE}`.`{table}`"))
 
 
+def select_rows(conn, sql, params=()):
+    """Run a read-only query and return all rows."""
+    with conn.cursor() as cursor:
+        cursor.execute(sql, params)
+        return list(cursor.fetchall())
+
+
 def insert_rows(conn, table, columns, rows):
     """Insert rows (lists of values in column order). Insert-only."""
     if not rows:

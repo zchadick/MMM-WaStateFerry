@@ -104,8 +104,10 @@ Automated (`tests/`), from the module directory: `node --test` (or `npm test`).
 - `python/test_events.py` (Python, `unittest`; run `python3 -m unittest discover -s tests/python`
   from the module directory, with PyMySQL not needed): the covariate collectors with stand-in
   API responses and a stand-in DB connection: reading `config.js`, the bulletins requests and
-  raw rows, table creation and inserts, the runner continuing past a failing collector, and
-  an insert-only check of the collector code.
+  raw rows, weather (coordinates from WSDOT and its failures, current and backfill requests,
+  Seattle-to-UTC date ranges across daylight-time changes, the read-only gap listing), table
+  creation and inserts, the runner continuing past a failing collector, and an insert-only
+  check of the collector code.
 - `delays.test.js`: delay tracking and the end-of-day / new-day flush, through
   `buildSailings` directly (pure; no stand-ins needed).
 - `refresh.test.js`: pre-departure refreshes, DB rows per refresh (and the daily timetable row),
@@ -505,6 +507,22 @@ Because nothing in `FERRY` can be deleted, raw traffic responses are **never wri
   DATETIME(3) UTC, endpoint ("alerts" | "terminalbulletins"), terminal_id (NULL for alerts),
   http_status, body LONGTEXT)`; HTTP errors are stored too, and a request with no response
   stores NULL status and body. Each run writes 3 rows with the same `snapshot_utc`.
+- **Weather** (`events_weather.py`): each run gets both terminals' coordinates from WSDOT's
+  `terminals/rest/terminallocations` (so weather collection fails while WSDOT is down; backfill
+  fills the gap), then Open-Meteo's **current** weather at each terminal: temperature,
+  apparent temperature, precipitation, rain, showers, snowfall, weather code, cloud cover,
+  humidity, visibility, is-day, wind speed, gusts, and direction; metric units (°C, mm, km/h,
+  m). Open-Meteo's values are model data (updated every 15 min for those coordinates), not
+  station readings. Table `FERRY_COVARIATES.weather_snapshots(id, snapshot_utc, source
+  ("current" | "backfill"), terminal_id, latitude, longitude, range_start, range_end (Seattle
+  dates, backfill only), http_status, body)`: one raw row per terminal per run.
+  - **Backfill:** `events_weather.py backfill START END` (Seattle dates, inclusive) stores
+    hourly weather for that range from Open-Meteo's **historical forecast** API (same models as
+    "current", 2022 to today; UTC times; the request covers the UTC dates spanning the Seattle
+    dates), one raw row per terminal (`source` "backfill"). Backfilling again adds rows;
+    processing keeps the latest per hour.
+  - **Gaps:** `events_weather.py gaps START END` lists, per terminal, the half-hours (Seattle
+    time) with no successful current snapshot, up to now. Read-only.
 - **One table per signal** in `FERRY_COVARIATES`, created by its collector on first run
   (`CREATE DATABASE/TABLE IF NOT EXISTS`). Only the owner deletes data there; collectors and
   any code Claude writes are insert-only (a test checks the collector code for delete, drop,

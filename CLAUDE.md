@@ -101,6 +101,11 @@ Automated (`tests/`), from the module directory: `node --test` (or `npm test`).
 - `gpio.test.js`: GPIO settings, the helper supervisor (restarts, memory backstop, LED timing,
   stop), the Python helper against a stand-in gpiozero (skipped without python3), and
   node_helper's STATUS problems, REFRESH, buttons, and cooldown.
+- `python/test_events.py` (Python, `unittest`; run `python3 -m unittest discover -s tests/python`
+  from the module directory, with PyMySQL not needed): the covariate collectors with stand-in
+  API responses and a stand-in DB connection: reading `config.js`, the bulletins requests and
+  raw rows, table creation and inserts, the runner continuing past a failing collector, and
+  an insert-only check of the collector code.
 - `delays.test.js`: delay tracking and the end-of-day / new-day flush, through
   `buildSailings` directly (pure; no stand-ins needed).
 - `refresh.test.js`: pre-departure refreshes, DB rows per refresh (and the daily timetable row),
@@ -468,7 +473,9 @@ Because nothing in `FERRY` can be deleted, raw traffic responses are **never wri
   (inserted, versioned, or rebuilt) is still to be decided. Prefer doing processing as SQL
   inside MariaDB, including across databases (e.g. `INSERT INTO <derived db>.<table> SELECT
   ... FROM FERRY.api_snapshots ...`; MariaDB 10.11's `JSON_TABLE` can unpack the raw WSF
-  JSON), so data never leaves the DB server. The never-delete rule applies to `FERRY`.
+  JSON), so data never leaves the DB server. The never-delete rule applies to `FERRY`. The DB
+  user can create and write further databases on the same server (as `FERRY_COVARIATES`
+  shows), so derived tables can live in a database of their own.
 - **Settings come from `config.js`**, copied to the NAS like any other machine. Python reads it
   as plain text and pulls out the few values it needs (API keys, DB settings, route IDs) with
   simple regex written for this config, failing clearly if a value isn't found. New collector
@@ -477,11 +484,46 @@ Because nothing in `FERRY` can be deleted, raw traffic responses are **never wri
   backfilled (weather, holidays, school calendars, events) to the start of logging
   (Oct 20, 2026).
 
+### Collection (covariates)
+
+- **Four signals are collected on a schedule:** bulletins, weather, traffic, and events.
+  (Holidays and school calendars are computed or hand-maintained, not polled.)
+- **Every ~30 minutes**, all four, into the **`FERRY_COVARIATES`** database (same server as
+  `FERRY`). Insert-only, like `FERRY`: collectors never update or delete rows.
+- **Scripts** (Python, in `predictive_helpers/`), all prefixed `events_`:
+  - `events_collect.py`: the runner, the only scheduled task on the NAS. Runs each collector in
+    turn and logs a failure without stopping the others.
+  - `events_common.py`: shared code (read `config.js`, connect to the DB, insert rows).
+  - One collector per signal, each runnable on its own: `events_bulletins.py`,
+    `events_weather.py`, `events_traffic.py`, `events_events.py`.
+- **Bulletins** (`events_bulletins.py`): each run fetches `schedule/rest/alerts` (all routes'
+  active alerts) and `terminals/rest/terminalbulletins/{id}` for both terminals on the route,
+  and stores the **raw responses unchanged** (one row each: snapshot time, endpoint, terminal ID,
+  HTTP status, raw JSON). Alerts for **all routes** are kept; filtering to the route, working
+  out when each bulletin appeared and disappeared, deduplicating by bulletin ID, and tagging
+  happen in processing. Table `FERRY_COVARIATES.bulletin_snapshots(id, snapshot_utc
+  DATETIME(3) UTC, endpoint ("alerts" | "terminalbulletins"), terminal_id (NULL for alerts),
+  http_status, body LONGTEXT)`; HTTP errors are stored too, and a request with no response
+  stores NULL status and body. Each run writes 3 rows with the same `snapshot_utc`.
+- **One table per signal** in `FERRY_COVARIATES`, created by its collector on first run
+  (`CREATE DATABASE/TABLE IF NOT EXISTS`). Only the owner deletes data there; collectors and
+  any code Claude writes are insert-only (a test checks the collector code for delete, drop,
+  truncate, update, replace, or alter statements).
+- **Settings** (`events_common.read_settings`): from the MMM-WaStateFerry sailings entry in
+  `config.js`: `apiKeys.wsdot`, `route.departingTerminalID` / `arrivingTerminalID`, and
+  `predictionDb.host` / `user` / `password` (optional `port`). Default path: the MagicMirror
+  install the module sits in (`../../../config/config.js` from `predictive_helpers/`);
+  `FERRY_CONFIG=/path/to/config.js` overrides it (e.g. on the NAS). A missing value stops the
+  run with an error naming the setting.
+- **Running:** Python 3.9+ with one package, PyMySQL. In a checkout, use a virtual environment
+  in the module folder (git-ignored): `python3 -m venv .venv && .venv/bin/pip install PyMySQL`.
+  Then from `predictive_helpers/`: `../.venv/bin/python events_collect.py` (all collectors;
+  exit code 1 if any failed) or `../.venv/bin/python events_bulletins.py` (one collector).
+  NAS scheduling (every ~30 min) is still to be set up.
+
 ### Open questions
 
-- DB privileges: can the DB user create and write a second database (for derived tables)?
 - How the traffic score is defined, and which routes feed it.
-- Polling interval per source.
 
 ## Open work
 

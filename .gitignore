@@ -34,3 +34,7 @@ npm-debug.log*
 
 # Module
 map_cache/
+
+# Python (predictive_helpers)
+.venv/
+__pycache__/

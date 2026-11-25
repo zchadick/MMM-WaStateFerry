@@ -406,6 +406,12 @@ description and wiring in README.md). Each part runs only if its setting is pres
   while any problem is active, a fast pulse (0.25 s each way: 2 Hz). Problems: the latest
   refresh failed, the space feed failed, the timetable failed to load, the DB is failing, or a
   map failed. Resolved by the next successful refresh, a recovered DB write, or a map built.
+  - **Expected fast pulse from the space feed:** WSF's `terminalsailingspace` returns HTTP 400
+    ("The provided TerminalID is not valid…") for every request from about midnight to 3 AM
+    Seattle time, and for scattered single requests during the day (often around 5 AM). Each
+    one makes STATUS fast-pulse until the next refresh, while the screen looks normal (space
+    failures are never shown there). A button press clears it only because it runs a fresh
+    refresh. Kept on purpose: STATUS reports every space-feed failure, with no filtering.
 - **REFRESH:** blinks at 2 Hz (0.25 s on/off) during every refresh, at least 5 blinks
   (2.5 s); a longer refresh blinks until it ends, stopping at the end of a blink.
 - **Buttons:** press only (not hold or release), switch to ground with the internal pull-up,
